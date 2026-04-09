@@ -1,0 +1,30 @@
+package gr.ihu.ict.carshow.data.model
+
+enum class CarCategory(val displayName: String) {
+    SEDAN("Sedan"),
+    SUV("SUVs"),
+    HATCHBACK("Hatchbacks"),
+    STATION_WAGON("Station Wagons"),
+    COUPE("Coupes"),
+    CONVERTIBLE("Convertibles"),
+    MOTORCYCLE("Motorcycles"),
+    SCOOTER("Scooters & Minibikes"),
+    TRUCK_4X4("Trucks & 4x4s"),
+    VANS("Vans"),
+    RV_CAMPER("RVs & Campers"),
+    ELECTRIC_CAR("Electric Cars"),
+    SUPERCAR("Supercars"),
+    LUXURY("Luxury Cars"),
+    CITY_CAR("City Cars"),
+    HEAVY_TRUCK("Heavy Trucks"),
+    CLASSIC_CAR("Classic Cars"),
+    RIGHT_HAND_DRIVE("Right Hand Drive Cars"),
+    SERVICE_VEHICLE("Service Vehicles"),
+    HOT_ROD("Hot Rods"),
+    CROSSOVER("Crossovers"),
+    MUSCLE_CAR("Muscle Cars"),
+    OFF_ROAD("Off-Roaders"),
+    HYBRID_CAR("Hybrid Cars"),
+    MINIVAN("Minivans"),
+    BOAT("Boats")
+}
