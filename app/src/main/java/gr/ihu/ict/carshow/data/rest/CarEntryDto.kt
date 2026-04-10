@@ -1,0 +1,30 @@
+package gr.ihu.ict.carshow.data.rest
+
+data class CarEntryDto(
+    val id: Int,
+    val brand: String,
+    val model: String,
+    val category: String,
+    val year: Int,
+    val price: Double,
+    val priceNegotiable: Boolean,
+    val mainImageData: ByteArray,
+    val description: String,
+    val engine: String,
+    val horsepower: Int,
+    val drivetrain: String,
+    val transmission: String,
+    val torque: Int,
+    val consumption: String,
+    val mileage: Int,
+    val interiorColor: String,
+    val exteriorColor: String,
+    val wheelSize: Int,
+    val doors: Int,
+    val passengers: Int,
+    val isRightHandDrive: Boolean,
+    val location: String,
+    val sellerType: String,
+    val rating: Float,
+    val videoUrl: String? = null
+)

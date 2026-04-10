@@ -1,6 +1,8 @@
 package gr.ihu.ict.carshow.data.model
 
-data class Car(
+import android.graphics.Bitmap
+
+data class CarEntry(
     val id: Int,
     val brand: String,
     val model: String,
@@ -8,7 +10,7 @@ data class Car(
     val year: Int,
     val price: Double,
     val priceNegotiable: Boolean,
-    val imageUrl: String,
+    val mainImage: Bitmap,
     val description: String,
     val engine: String,
     val horsepower: Int,
