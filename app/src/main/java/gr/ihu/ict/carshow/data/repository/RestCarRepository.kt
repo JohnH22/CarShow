@@ -7,6 +7,7 @@ import gr.ihu.ict.carshow.data.model.CarEntry
 import gr.ihu.ict.carshow.data.model.SellerType
 import gr.ihu.ict.carshow.data.rest.CarEntryApiService
 import gr.ihu.ict.carshow.data.rest.CarEntryDto
+import gr.ihu.ict.carshow.data.rest.TokenExpiredException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import retrofit2.HttpException
@@ -22,10 +23,13 @@ class RestCarRepository(
             val remoteDtos = apiService.getAllCarEntries()
             emit(remoteDtos.map { dtoToCarEntry(it) })
         } catch (e: HttpException) {
+            if (e.code() == 401) {
+                throw TokenExpiredException()
+            }
             throw e
         }
-
     }
+
 
 
     override fun getCarsByCategoryStream(category: CarCategory): Flow<List<CarEntry>> = flow {
@@ -33,9 +37,13 @@ class RestCarRepository(
             val remoteDtos = apiService.getByCategory(category.name)
             emit(remoteDtos.map { dtoToCarEntry(it) })
         } catch (e: HttpException) {
+            if (e.code() == 401) {
+                throw TokenExpiredException()
+            }
             throw e
         }
     }
+
 
 
     override suspend fun getCarById(id: Int): CarEntry? {
@@ -43,6 +51,9 @@ class RestCarRepository(
             val dto = apiService.getById(id)
             dtoToCarEntry(dto)
         } catch (e: HttpException) {
+            if (e.code() == 401) {
+                throw TokenExpiredException()
+            }
             null
         }
     }
@@ -60,15 +71,24 @@ class RestCarRepository(
             apiService.addCarEntry(dto)
 
         } catch (e: HttpException) {
+            if (e.code() == 401) {
+                throw TokenExpiredException()
+            }
             throw e
         }
     }
 
 
     override suspend fun deleteCar(carEntry: CarEntry) {
-
+        try {
+            apiService.deleteCarEntry(carEntry.id)
+        } catch (e: HttpException) {
+            if (e.code() == 401) {
+                throw TokenExpiredException()
+            }
+            throw e
+        }
     }
-
 
     private fun dtoToCarEntry(dto: CarEntryDto): CarEntry {
         val bitmap = BitmapFactory.decodeByteArray(dto.mainImageData, 0, dto.mainImageData.size)
