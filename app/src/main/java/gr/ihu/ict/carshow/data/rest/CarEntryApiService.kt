@@ -1,6 +1,8 @@
 package gr.ihu.ict.carshow.data.rest
 
 
+import gr.ihu.ict.carshow.auth.LoginRequest
+import gr.ihu.ict.carshow.auth.LoginResponse
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -24,6 +26,6 @@ interface CarEntryApiService {
     @DELETE("car_entry/{id}")
     suspend fun deleteCarEntry(@Path("id") id: Int)
 
-//    @POST("/login")
-//    suspend fun login(@Body request: LoginRequest): LoginResponse
+    @POST("/login")
+    suspend fun login(@Body request: LoginRequest): LoginResponse
 }
