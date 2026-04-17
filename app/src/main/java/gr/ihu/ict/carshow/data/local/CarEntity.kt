@@ -6,10 +6,10 @@ import androidx.room.PrimaryKey
 
 @Entity(tableName = "car_entries")
 data class CarEntity(
-    // Room gives automatically IDs(1,2,3...)
-    @PrimaryKey(autoGenerate = true)
-    // 0 means Room will auto set the ID
-    val id: Int = 0,
+
+    @PrimaryKey
+
+    val id: Int,
 
     val brand: String,
     val model: String,

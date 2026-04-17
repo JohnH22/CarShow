@@ -26,5 +26,6 @@ enum class CarCategory(val displayName: String) {
     OFF_ROAD("Off-Roaders"),
     HYBRID_CAR("Hybrid Cars"),
     MINIVAN("Minivans"),
-    BOAT("Boats")
+    BOAT("Boats"),
+    UNKNOWN("Unknown")
 }

@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.Flow
 interface CarRepository {
     fun getCarsStream(): Flow<List<CarEntry>>
     fun getCarsByCategoryStream(category: CarCategory): Flow<List<CarEntry>>
+    suspend fun refreshCars()
     suspend fun getCarById(id: Int): CarEntry?
     suspend fun addCarEntry(carEntry: CarEntry)
     suspend fun deleteCar(carEntry: CarEntry)

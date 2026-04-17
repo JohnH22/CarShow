@@ -25,6 +25,9 @@ interface CarEntryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAllCars(cars: List<CarEntity>)
 
+    @Query("DELETE FROM car_entries WHERE id = :id")
+    suspend fun deleteCarById(id: Int)
+
     @Delete
     suspend fun deleteCar(car: CarEntity)
 
