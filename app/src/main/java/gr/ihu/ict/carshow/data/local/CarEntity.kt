@@ -8,7 +8,6 @@ import androidx.room.PrimaryKey
 data class CarEntity(
 
     @PrimaryKey
-
     val id: Int,
 
     val brand: String,
