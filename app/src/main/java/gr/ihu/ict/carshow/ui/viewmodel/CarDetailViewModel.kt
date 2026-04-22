@@ -36,14 +36,14 @@ class CarDetailViewModel(
                 val result = repository.getCarById(id)
 
                 if (result == null) {
-                    errorMessage = "The car was not found or is unavailable."
+                    errorMessage = "The vehicle was not found or is unavailable."
                 } else {
                     car = result
                 }
             } catch (e: TokenExpiredException) {
                 onTokenExpired()
             } catch (e: Exception) {
-                errorMessage = "Failed to load car details. Please check your connection."
+                errorMessage = "Failed to load vehicle details. Please check your connection."
             } finally {
                 isLoading = false
             }

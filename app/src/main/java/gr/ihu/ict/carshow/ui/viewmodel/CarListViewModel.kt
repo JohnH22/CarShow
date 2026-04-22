@@ -51,7 +51,7 @@ class CarListViewModel(
                 //Null check | if null do nothing, if not null run this command (invoke just runs the command)
                 onTokenExpired?.invoke()
             } catch (e: Exception) {
-                _uiState.update { it.copy(errorMessage = "Failed to sync with server") }
+                _uiState.update { it.copy(errorMessage = "Failed to sync with server.") }
             } finally {
                 _uiState.update { it.copy(isLoading = false) }
             }
@@ -71,7 +71,7 @@ class CarListViewModel(
             } catch (e: TokenExpiredException) {
                 onTokenExpired()
             } catch (e: Exception) {
-                _uiState.update { it.copy(errorMessage = "Failed to save car") }
+                _uiState.update { it.copy(errorMessage = "Failed to save vehicle.") }
             } finally {
                 _uiState.update { it.copy(isLoading = false) }
             }
