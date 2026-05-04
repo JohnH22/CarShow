@@ -1,28 +1,584 @@
 package gr.ihu.ict.carshow
 
+import android.Manifest
+import android.R
+import android.app.Application
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.text.Layout
+import android.widget.Space
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
-import gr.ihu.ict.carshow.ui.theme.CarShowTheme
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.toRoute
+import gr.ihu.ict.carshow.auth.TokenStore
+import gr.ihu.ict.carshow.data.local.DatabaseProvider
+import gr.ihu.ict.carshow.data.model.CarCategory
+import gr.ihu.ict.carshow.data.model.CarEntry
+import gr.ihu.ict.carshow.data.repository.CarRepository
+import gr.ihu.ict.carshow.data.repository.RestCarRepository
+import gr.ihu.ict.carshow.data.rest.RetrofitInstance
+import gr.ihu.ict.carshow.ui.viewmodel.CarDetailViewModel
+import gr.ihu.ict.carshow.ui.viewmodel.CarListViewModel
+import gr.ihu.ict.carshow.ui.viewmodel.auth.AuthViewModel
+import kotlinx.serialization.Serializable
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         setContent {
-            CarShowTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
+
+        }
+    }
+}
+
+
+@kotlinx.serialization.Serializable
+object Home
+
+@kotlinx.serialization.Serializable
+data class Vehicles(val category: String)
+
+@kotlinx.serialization.Serializable
+data class VehicleDetail(val vehicleId: Int)
+
+@kotlinx.serialization.Serializable
+object AddVehicle
+
+@kotlinx.serialization.Serializable
+object Login
+
+
+
+
+
+
+
+@Composable
+fun CarShowApp() {
+    // Navigation Controller: Manages app screens and backstack
+    val navController = rememberNavController()
+
+    // App Context needed for AndroidViewModels and Database
+    // Casting LocalContext to Application to ensure global scope
+    val context = LocalContext.current.applicationContext as Application
+
+
+    // Room Database: Saves data locally on the device
+    // "remember" ensures database instance created once and reused across recompositions
+    val database = remember {
+        DatabaseProvider.getDatabase(context)
+    }
+
+
+    // Retrofit API Service: Handles network communication with Django backend
+    // This instance includes AuthInterceptor and TokenAuthenticator
+    val api = remember {
+        RetrofitInstance.buildApi(context)
+    }
+
+
+    // Repository: Coordinates data between the API and Local Room Database
+    val repository = remember {
+        RestCarRepository(
+            api,
+            database.carEntryDao()
+        )
+    }
+
+
+    // AuthViewModel: Manages Login/Logout and User Authentication logic
+    // Passing application context and API service as dependencies
+    val authViewModel = remember {
+        AuthViewModel(context, api)
+    }
+
+
+    // Determine where to send User upon app launch
+    // If Access Token exists it skips the Login Screen
+   // This works with the new implementation of access token/refresh token logic(add on next commit) val startDestination = if (TokenStore.getAccess(context) != null) "home" else "login"
+
+
+    // Navigation Host: Defines the UI structure and routes of the app
+    // Passing all the shared dependencies (repository,authViewModel) into the NavHost
+    CarShowNavHost(navController, repository, authViewModel, startDestination )
+}
+
+
+
+
+
+@Composable
+fun CarShowNavHost(
+    navController: NavHostController,
+    repository: CarRepository,
+    authViewModel: AuthViewModel,
+    startDestination: Any
+) {
+    NavHost(
+        navController = navController,
+        startDestination = startDestination
+    ) {
+
+    // --- LOGIN SCREEN---
+        composable<Login> {
+            LoginScreen(
+                viewModel = authViewModel,
+                onLoginSuccess = {
+                    navController.navigate(Home) {
+                        popUpTo(Login) { inclusive = true } // clear back stack
+                    }
+                }
+            )
+        }
+
+    // --- HOME SCREEN---
+        composable<Home> {
+            HomeScreen(
+                onSelectCategory = { category ->
+                    navController.navigate(Vehicles(category))
+                },
+                onAddVehicle = {
+                    navController.navigate(AddVehicle)
+                },
+                onLogout = {
+                    authViewModel.logout {
+                        navController.navigate(Login) {
+                            // Remove Login Screen from backstack (so user can't go back to it)
+                            popUpTo(0) { inclusive = true } // clear back stack
+                        }
+                    }
+                }
+            )
+        }
+
+    // --- VEHICLES LIST SCREEN ---
+        composable<Vehicles> { backStackEntry ->
+            val route = backStackEntry.toRoute<Vehicles>()
+
+            // Re-create ViewModel only when the category changes
+            val viewModel = remember(route.category) {
+                CarListViewModel(repository)
+            }
+
+            VehiclesScreen(
+                category = route.category,
+                viewModel = viewModel,
+                onVehicleClick = { id ->
+                    navController.navigate(VehicleDetail(id))
+                },
+                onTokenExpired = {
+                    // Redirect to Login if the session (refresh token) is dead
+                    navController.navigate(Login) { popUpTo(0) { inclusive = true } } // clear back stack
+                }
+            )
+        }
+
+    // --- ADD VEHICLE SCREEN ---
+        composable<AddVehicle> {
+            val viewModel = remember { CarListViewModel(repository) }
+
+            AddVehicleScreen(
+                viewModel = viewModel,
+                onSaved = { navController.popBackStack() },
+                onTokenExpired = {
+                    navController.navigate(Login) { popUpTo(0) { inclusive = true } } // clear back stack
+                }
+            )
+        }
+
+    // --- VEHICLE DETAIL SCREEN ---
+        composable<VehicleDetail> { backStackEntry ->
+            val route = backStackEntry.toRoute<VehicleDetail>()
+
+            // Re-create ViewModel only when the vehicleId changes
+            val viewModel = remember(route.vehicleId) {
+                CarDetailViewModel(repository)
+            }
+
+            VehicleDetailScreen(
+                vehicleId = route.vehicleId,
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onBackHome = {
+                    navController.navigate(Home) { // Clears stack and takes to Home
+                        popUpTo(Home) { inclusive = false } // Keeps Home but clears everything on top of it
+                        launchSingleTop = true // If already at Home do not open another one
+                    }
+                },
+                onTokenExpired = {
+                    navController.navigate(Login) { popUpTo(0) { inclusive = true } } // clear back stack
+                }
+            )
+        }
+    }
+}
+
+
+
+
+
+@Composable
+fun LoginScreen(
+    viewModel: AuthViewModel,
+    onLoginSuccess: () -> Unit
+) {
+    // Local state to hold user input. "Remember" ensures no values lost during recompositions.
+    var username by remember { mutableStateOf("") }
+    var password  by remember { mutableStateOf("") }
+
+
+    // Observe the loginSuccess state from the ViewModel. When its true trigger navigation callback.
+    LaunchedEffect(viewModel.loginSuccess) {
+        if (viewModel.loginSuccess) {
+            viewModel.resetLoginSuccess() // Reset the state for next time.
+            onLoginSuccess() // Navigate to Home destination.
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF121212)), // Dark background.
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.85f) // Set container width 85% of screen.
+                .background(
+                    color = Color.White,
+                    shape = RoundedCornerShape(16.dp)
+                )
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp) // Gap between UI elements.
+        ) {
+            // Car Icon.
+            Icon(
+                imageVector = Icons.Default.DirectionsCar,
+                contentDescription = "App Logo",
+                modifier = Modifier.size(64.dp),
+                tint = Color(0xFF1976D2)
+            )
+
+            Text(
+                text = "Sign in to manage your fleet",
+                fontSize = 14.sp,
+                color = Color.Gray
+            )
+
+            // Username input field.
+            OutlinedTextField(
+                value = username,
+                onValueChange = { username = it },
+                label = { Text("Username") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null ) }
+            )
+
+            // Password input field with hidden text transformation(PasswordVisualTransformation).
+            OutlinedTextField(
+                value = password,
+                onValueChange =  { password = it },
+                label = { Text("Password") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null ) }
+            )
+
+            // Show error text only if errorMessage is not null.
+            viewModel.errorMessage?.let { error ->
+                Text(
+                    text = error,
+                    color = MaterialTheme.colorScheme.error, // Display errors in red color
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            // Login Button. Disabled if fields are black or during API call (isLoading).
+            Button(
+                onClick = { viewModel.login(username, password) },
+                enabled = username.isNotBlank() && password.isNotBlank() && !viewModel.isLoading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+            ) {
+                // Show progress indicator while waiting for the server response.
+                if (viewModel.isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text("Login", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+
+
+
+
+@Composable
+fun HomeScreen(
+    onSelectCategory: (String) -> Unit, // Callback for category selection.
+    onAddVehicle: () -> Unit, // Callback to navigate to AddVehicle screen.
+    onLogout: () -> Unit // Callback to handle user logout.
+) {
+    // Local list of available categories, defines which buttons will be generated in UI.
+    val categories = listOf("Sedan", "SUV", "Electric", "Sport")
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF121212)) // Dark theme background.
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Screen Title.
+            Text(
+                text = "Vehicle Fleet",
+                style = MaterialTheme.typography.headlineLarge,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
+            // Subtitle for guidance.
+            Text(
+                text = "Select a category to browse",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.Gray
+            )
+
+            Spacer(modifier = Modifier.height(40.dp))
+
+
+            // Dynamic Button Generation: loops through "categories" list and creates button for each one.
+            categories.forEach { category ->
+                Button(
+                    onClick = { onSelectCategory(category) }, // Passes the specific category string.
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(60.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1976D2), // Blue color
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(
+                        text = category,
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp)) // Spacing between category buttons
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Logout option
+            TextButton(onClick = onLogout) {
+                Text(
+                    "Log Out",
+                    color = Color(0xFFE53935), // Red for logout
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+        }
+
+        // FAB positioned at bottom-right. Stays on top of Column because it's inside a Box.
+        FloatingActionButton(
+            onClick = onAddVehicle,
+            modifier = Modifier
+                .padding(24.dp)
+                .align(Alignment.BottomEnd),
+            containerColor = Color(0xFF1976D2),
+            contentColor = Color.White
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = "Add Vehicle"
+            )
+        }
+    }
+}
+
+
+
+
+
+
+@Composable fun VehiclesScreen(
+    category: String,
+    viewModel: CarListViewModel,
+    onVehicleClick: (Int) -> Unit,
+    onTokenExpired: () -> Unit
+) {
+
+    // Collect and observe UI state from ViewModel converting to Compose State
+    // value state will auto update whenever the UI data changes
+    val state by viewModel.uiState.collectAsState()
+
+
+    // Fetch the fresh data from server whenever the category changes
+    LaunchedEffect(category) {
+        viewModel.refreshData(onTokenExpired)
+    }
+
+    // Filtering full list of cars based on selected category, equals and ignoreCase
+    // secures it is safe against typo/casing mismatches
+    val filteredItems = state.items.filter {
+        it.category.displayName.equals(category, ignoreCase = true)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF121212)),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Display selected category name as page title
+        Text(
+            text = category,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 32.sp,
+            color = Color.White
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Display error message and retry button if something goes wrong
+        state.errorMessage?.let { message ->
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = message,
+                    color = Color.Red
+                )
+                Button(
+                    onClick = { viewModel.refreshData(onTokenExpired) }
+                ) {
+                    Text("Retry")
+                }
+            }
+        }
+
+        // Show spinner while data being fetched
+        if (state.isLoading) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = Color(0xFF1976D2))
+            }
+        }
+
+        // Show the list of filtered cars using LazyColumn(saving memory, smooth scrolling)
+        if (!state.isLoading && state.errorMessage == null) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp) // Gap between vehicle cards
+            ) {
+                items(filteredItems) {car ->
+                    VehicleItemCard(
+                        car = car,
+                        onClick = { onVehicleClick(car.id) }
                     )
                 }
             }
@@ -30,18 +586,502 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+
 @Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
+fun VehicleItemCard(
+    car: CarEntry,
+    onClick: () -> Unit // Callback triggered when the card is pressed
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable{ onClick() }, // Navigation to details
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Placeholder Box for the vehicle image/icon
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .background(Color.DarkGray, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.DirectionsCar,
+                    contentDescription = null,
+                    tint = Color.LightGray
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column {
+                // Vehicle Brand & Model
+                Text(
+                    text = "${car.brand} ${car.model}",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White
+                )
+                // Pricing info with color (green)
+                Text(
+                    text = "Price: ${car.price} €",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF4CAF50)
+                )
+            }
+        }
+    }
+}
+
+
+
+
+
+@Composable
+fun VehicleDetailScreen(
+    vehicleId: Int,
+    viewModel: CarDetailViewModel,
+    onBack: () -> Unit,
+    onBackHome: () -> Unit,
+    onTokenExpired: () -> Unit
+) {
+    // Fetch vehicle details whenever the vehicleId changes or the screen is first composed
+    LaunchedEffect(vehicleId) {
+        viewModel.getCar(vehicleId, onTokenExpired)
+    }
+
+    // Clear the ViewModel state when the user leaves this screen
+    // Prevents "ghost" data (showing previous car) when navigating to a new car
+    DisposableEffect(Unit) {
+        onDispose { viewModel.clearState() }
+    }
+
+    // Main container
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF121212)), // Dark background
+        contentAlignment = Alignment.Center
+    ) {
+        when {
+            // Displaying a circular progress indicator while fetching data from repository
+            viewModel.isLoading -> {
+                CircularProgressIndicator(color = Color(0xFF1976D2))
+            }
+
+            // Handle API or Database errors showing a message and recovery options
+            viewModel.errorMessage != null -> {
+                // Copy errorMessage to local variable to prevent the value from changing during composition (Thread Safety)
+                val message = viewModel.errorMessage
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth(0.85f)
+                        .background(Color(0xFF2C1414), RoundedCornerShape(24.dp))
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (message != null) { // Smart cast , "message" is now guaranteed to be non-null
+                        Text(
+                            text = message,
+                            color = Color(0xFFEF5350),
+                            textAlign = TextAlign.Center,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // Retry button , attempt to fetch data again
+                        Button(
+                            onClick = { viewModel.getCar(vehicleId, onTokenExpired) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+                        ) {
+                            Text("Retry")
+                        }
+
+                        // Navigation button to go back to the previous screen
+                        Button(
+                            onClick = onBack,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
+                        ) {
+                            Text("Go Back")
+                        }
+                    }
+                }
+            }
+
+            // Render vehicle info once the data is successfully loaded
+            viewModel.car != null -> {
+                // Copy viewModel.car to local variable to prevent the value from changing during composition (Thread Safety)
+                val car = viewModel.car
+
+                if (car != null) { // Compiler now knows "car" is non-null for the rest of this block
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth(0.9f)
+                            .verticalScroll(rememberScrollState()) // Enable scrolling for smaller screens
+                            .background(Color(0xFF1E1E1E), RoundedCornerShape(24.dp))
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // Image/Icon placeholder for the vehicle
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1.5f)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color.DarkGray),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DirectionsCar,
+                                contentDescription = "Vehicle Image",
+                                modifier = Modifier.size(100.dp),
+                                tint = Color.Gray
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        // Vehicle identity: Brand & Model display
+                        Text(
+                            text = "${car.brand} ${car.model}",
+                            fontSize = 30.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+
+                        // Using modular rows to display key-value pairs of car data
+                        DetailedSpecRow(
+                            label = "Category",
+                            value = car.category.displayName
+                        )
+                        DetailedSpecRow(
+                            label = "Production Year",
+                            value = car.year.toString()
+                        )
+                        DetailedSpecRow(
+                            label = "Price Tag",
+                            value = "${car.price} €",
+                            isHighlight = true // Highlight price with a specific color
+                        )
+
+                        Spacer(modifier = Modifier.height(32.dp))
+
+
+                        // Returns user to the list view
+                        Button(
+                            onClick = onBack,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+                        ) {
+                            Text("Back to List", style = MaterialTheme.typography.titleMedium)
+                        }
+
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Jump back to Home/Categories menu
+                        TextButton(onClick = onBackHome) {
+                            Text("Main Menu", color = Color.Gray)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+// Reusable UI component for displaying a single row of vehicle specs
+// Follows "Label: Value" pattern
+@Composable
+fun DetailedSpecRow(
+    label: String,
+    value: String,
+    isHighlight: Boolean = false
+) {
+    // Row container to align the label and the value horizontally
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween // Pushes label left and value right
+    ) {
+        // The Label (Category, Year, ...)
+        Text(
+            text = label,
+            color = Color.Gray, // Label color
+            fontSize = 16.sp
+        )
+
+        // The value of the property
+        Text(
+            text = value,
+            // Green color for the highlighted values , white for the other ones
+            color = if (isHighlight) Color(0xFF4CAF50) else Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp
+        )
+    }
+}
+
+
+
+
+@Composable
+fun AddVehicleScreen(
+    viewModel: CarListViewModel,
+    onSaved: () -> Unit,
+    onTokenExpired: () -> Unit
+) {
+    // Using "remember" to keep input values along recomposition
+    var brand by remember { mutableStateOf("") }
+    var modelName by remember { mutableStateOf("") }
+    var year by remember { mutableStateOf("") }
+    var price by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf(CarCategory.SEDAN) }
+    var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    val context = LocalContext.current
+    val uiState by viewModel.uiState.collectAsState()
+
+
+    // Prepare a URI where the captured image will be temporarily stored
+    val photoUri = remember {
+        val file = File(context.cacheDir, "vehicle_${System.currentTimeMillis()}.jpg")
+        FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+    }
+
+
+    // Triggered when the user takes a photo successfully
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success) {
+            val stream = context.contentResolver.openInputStream(photoUri)
+            capturedBitmap = BitmapFactory.decodeStream(stream)
+        }
+    }
+
+    // Allows the user to pick an existing photo from the device
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let {
+            val stream = context.contentResolver.openInputStream(it)
+            capturedBitmap = BitmapFactory.decodeStream(stream)
+        }
+    }
+
+    // Handles the runtime request for Camera access
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            cameraLauncher.launch(photoUri)
+        }
+    }
+
+    // Simple check to ensure all required fields are filled and a photo is selected
+    val isFormValid = brand.isNotBlank() && modelName.isNotBlank()
+            && year.isNotBlank() && price.isNotBlank() && capturedBitmap != null
+
+    // UI layout
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF121212))
+            .verticalScroll(rememberScrollState()) // Scrolling for smaller screens
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            "Add New Vehicle",
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
+
+        // Image selection
+        Box(
+            modifier = Modifier
+                .size(200.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF1E1E1E))
+                .clickable{
+                    // Check for camera permissions before launching the camera
+                    val permission = Manifest.permission.CAMERA
+                    if (ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) {
+                        cameraLauncher.launch(photoUri)
+                    } else {
+                        permissionLauncher.launch(permission)
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            capturedBitmap?.let { bitmap ->
+                // Display the selected captured image
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "Vehicle Preview",
+                    modifier = Modifier
+                        .fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } ?: run {
+                // Display a placeholder with option to choose from the gallery
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Default.AddAPhoto,
+                        contentDescription = "Selected Image",
+                        tint = Color.Gray,
+                        modifier = Modifier
+                            .size(48.dp)
+                    )
+
+                    TextButton(
+                        onClick = {
+                            galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        }
+                    ) {
+                        Text("or Choose from Gallery", color = Color(0xFF1976D2))
+                    }
+                }
+            }
+        }
+
+
+        // Using custom VehicleTextField
+        VehicleTextField(
+            value = brand,
+            onValueChange = { brand = it },
+            label = "Brand (e.g. BMW)"
+        )
+        VehicleTextField(
+            value = modelName,
+            onValueChange = { modelName = it },
+            label = "Model (e.g. M4)"
+        )
+        VehicleTextField(
+            value = year,
+            onValueChange = { year = it },
+            label = "Year",
+            isNumber = true
+        )
+        VehicleTextField(
+            value = price,
+            onValueChange = { price = it },
+            label = "Price (€)",
+            isNumber = true
+        )
+
+
+        // Category selection
+        Text(
+            "Category",
+            color = Color.White,
+            modifier = Modifier
+                .align(Alignment.Start)
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Filter out "UNKNOWN" keeping UI clean
+            items(CarCategory.entries.filter { it != CarCategory.UNKNOWN }) { category ->
+                val isSelected = selectedCategory == category
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { selectedCategory = category },
+                    label = { Text(category.displayName) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color(0xFF1976D2),
+                        selectedLabelColor = Color.White,
+                        containerColor = Color(0xFF1E1E1E),
+                        labelColor = Color.Gray
+                    )
+                )
+            }
+        }
+
+        // Submit action
+        Button(
+            onClick = {
+                // Copy the bitmap to local variable to prevent the value from changing during composition (Thread Safety)
+                val bitmap = capturedBitmap
+                // Ensure bitmap exists before attempting to create CarEntry object
+                if (bitmap != null) {
+                    // Construct the data object using input values and default properties from CarEntry
+                    val newVehicle = CarEntry(
+                        brand = brand,
+                        model = modelName,
+                        year = year.toIntOrNull() ?: 2024,
+                        price = price.toDoubleOrNull() ?: 0.0,
+                        category = selectedCategory,
+                        mainImage = bitmap // Now safely passed as non-null value
+                    )
+                    viewModel.addCar(newVehicle, onTokenExpired)
+                    onSaved() // Callback to navigate back or reset UI
+                }
+            },
+            // Button enabled only when the form is valid and not currently loading
+            enabled = isFormValid && !uiState.isLoading,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
+        ) {
+            if (uiState.isLoading) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    modifier = Modifier
+                        .size(24.dp)
+                )
+            } else {
+                Text(
+                    "Save Vehicle",
+                    fontSize = 18.sp
+                )
+            }
+        }
+    }
+}
+
+// Custom text field (reusable) for vehicle data entry
+@Composable
+fun VehicleTextField(
+    value: String,
+    onValueChange: (String) -> Unit, // onValueChange Callback runs when the user types or deletes text
+    label: String,
+    isNumber: Boolean = false // Determines if the numeric keyboard should be shown
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        modifier = Modifier.fillMaxWidth(),
+
+        // Dynamically switches between numeric and text input based on the "isNumber"
+        keyboardOptions = KeyboardOptions(
+            keyboardType = if (isNumber) KeyboardType.Number
+            else KeyboardType.Text),
+
+        // Color customization
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = Color.White,
+            unfocusedTextColor = Color.White,
+            focusedBorderColor = Color(0xFF1976D2), // Blue when selected
+            unfocusedBorderColor = Color.Gray, // Gray when idle
+            focusedLabelColor = Color(0xFF1976D2),
+            unfocusedLabelColor = Color.Gray
+        )
+
     )
 }
 
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    CarShowTheme {
-        Greeting("Android")
-    }
-}
