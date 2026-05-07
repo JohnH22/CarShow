@@ -176,7 +176,7 @@ fun CarShowApp() {
 
     // Determine where to send User upon app launch
     // If Access Token exists it skips the Login Screen
-   // This works with the new implementation of access token/refresh token logic(add on next commit) val startDestination = if (TokenStore.getAccess(context) != null) "home" else "login"
+    val startDestination = if (TokenStore.getAccess(context) != null) "home" else "login"
 
 
     // Navigation Host: Defines the UI structure and routes of the app
