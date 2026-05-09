@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import gr.ihu.ict.carshow.auth.LoginRequest
+import gr.ihu.ict.carshow.auth.RegisterRequest
 import gr.ihu.ict.carshow.auth.TokenStore
 import gr.ihu.ict.carshow.data.rest.CarEntryApiService
 import kotlinx.coroutines.launch
@@ -70,6 +71,71 @@ class AuthViewModel(
                 // Making sure loading stops regardless success or failure
                 isLoading = false
             }
+        }
+    }
+
+
+    // Handles the user registration process
+    // After successful signup , automatically log the user in
+    fun register(username: String, email: String, password: String) {
+        // Run local validation first
+        // If validateInput returns FALSE the !(NOT) turns it into TRUE
+        // The "if(true)" executes the "return" stopping the register function
+        // If validateInput returns TRUE , the "!" turns it into FALSE
+        // The "if" is ignored and proceeds to next block of code
+        if (!validateInput(username, email, password)) return
+
+        // If valid proceed with the network call
+        viewModelScope.launch {
+            isLoading = true
+            errorMessage = null
+            try {
+                // Call API to create the user account
+                val response = api.register(RegisterRequest(username, email, password))
+
+                // Since registration was successful proceed to login
+                // So user doesn't have to type their credentials twice.
+                login(username, password)
+
+            } catch (e: HttpException) {
+                // HTTP error handling(400 Bad Request if the user already exists)
+                errorMessage = when (e.code()) {
+                    400 -> "Username or Email already taken."
+                    else -> "Registration failed (Error: ${e.code()})."
+                }
+            } catch (e: IOException) {
+                // Connectivity issues
+                errorMessage = "Connection issue. Please check your internet connection and try again."
+            } catch (e: Exception) {
+                // Any other type of errors
+                errorMessage = "An unexpected error occurred."
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+
+    // Local validation to catch errors before going to the API
+    // Updates errorMessage if validation fails
+    private fun validateInput(username: String, email: String, password: String): Boolean {
+        return when {
+            // When one of them is empty give the error message
+            username.isBlank() || email.isBlank() || password.isBlank() -> {
+                errorMessage = "Please fill in all fields."
+                false // This "false" is returned to signal validation failure
+            }
+            // When the email address the user typed doesn't match an email address format give error message
+            !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches() -> {
+                errorMessage = "Invalid email format."
+                false // Signals that email check failed
+            }
+            // When the password is less than 8 characters give error message
+            password.length < 8 -> {
+                errorMessage = "Password must be at least 8 characters long."
+                false // Signals that password check failed
+            }
+            else -> true // If none of the above return "true" (Success)
         }
     }
 

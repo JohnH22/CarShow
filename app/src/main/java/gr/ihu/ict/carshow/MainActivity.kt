@@ -1,18 +1,14 @@
 package gr.ihu.ict.carshow
 
 import android.Manifest
-import android.R
 import android.app.Application
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
-import android.text.Layout
-import android.widget.Space
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -42,6 +38,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
@@ -56,7 +53,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -66,6 +62,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,17 +71,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -100,8 +94,8 @@ import gr.ihu.ict.carshow.data.rest.RetrofitInstance
 import gr.ihu.ict.carshow.ui.viewmodel.CarDetailViewModel
 import gr.ihu.ict.carshow.ui.viewmodel.CarListViewModel
 import gr.ihu.ict.carshow.ui.viewmodel.auth.AuthViewModel
-import kotlinx.serialization.Serializable
 import java.io.File
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -128,6 +122,8 @@ object AddVehicle
 @kotlinx.serialization.Serializable
 object Login
 
+@kotlinx.serialization.Serializable
+object Register
 
 
 
@@ -176,7 +172,7 @@ fun CarShowApp() {
 
     // Determine where to send User upon app launch
     // If Access Token exists it skips the Login Screen
-    val startDestination = if (TokenStore.getAccess(context) != null) "home" else "login"
+    val startDestination = if (TokenStore.getAccess(context) != null) Home else Login
 
 
     // Navigation Host: Defines the UI structure and routes of the app
@@ -187,7 +183,8 @@ fun CarShowApp() {
 
 
 
-
+// Navigation map for the application
+// Defines the connection between routes (Serializable objects) and Composables (Screens)
 @Composable
 fun CarShowNavHost(
     navController: NavHostController,
@@ -205,9 +202,32 @@ fun CarShowNavHost(
             LoginScreen(
                 viewModel = authViewModel,
                 onLoginSuccess = {
+                    // Navigate to Home and clear the login screen from the backstack
                     navController.navigate(Home) {
                         popUpTo(Login) { inclusive = true } // clear back stack
                     }
+                },
+                onNavigateToRegister = {
+                    // Navigate to Register
+                    navController.navigate(Register)
+                }
+            )
+        }
+
+        // --- REGISTER SCREEN ---
+        composable<Register> {
+            RegisterScreen(
+                viewModel = authViewModel,
+                onRegisterSuccess = {
+                    // Registration performs auto-login , navigate directly to Home
+                    navController.navigate(Home) {
+                        // Clear both Login and Register from the backstack
+                        popUpTo(Login) { inclusive = true }
+                    }
+                },
+                onBackToLogin = {
+                    // Back navigation to Login Screen
+                    navController.popBackStack()
                 }
             )
         }
@@ -216,6 +236,7 @@ fun CarShowNavHost(
         composable<Home> {
             HomeScreen(
                 onSelectCategory = { category ->
+                    // Pass selected category as a parameter to Vehicles route
                     navController.navigate(Vehicles(category))
                 },
                 onAddVehicle = {
@@ -234,6 +255,9 @@ fun CarShowNavHost(
 
     // --- VEHICLES LIST SCREEN ---
         composable<Vehicles> { backStackEntry ->
+            // Each screen "visit" is stored in a backStackEntry
+            // Using .toRoute<Vehicles>() to extract the data arguments (like "category")
+            // that were passed to this screen during navigation
             val route = backStackEntry.toRoute<Vehicles>()
 
             // Re-create ViewModel only when the category changes
@@ -260,7 +284,7 @@ fun CarShowNavHost(
 
             AddVehicleScreen(
                 viewModel = viewModel,
-                onSaved = { navController.popBackStack() },
+                onSaved = { navController.popBackStack() }, // Go back to the list after creation
                 onTokenExpired = {
                     navController.navigate(Login) { popUpTo(0) { inclusive = true } } // clear back stack
                 }
@@ -269,6 +293,10 @@ fun CarShowNavHost(
 
     // --- VEHICLE DETAIL SCREEN ---
         composable<VehicleDetail> { backStackEntry ->
+            // backStackEntry holds the information for this specific destination
+            // Using .toRoute<VehicleDetail>() to extract the "vehicleId" passed when we clicked
+            // on a car in the previous screen.
+            // This ID essential for ViewModel to know which car's details to fetch from API
             val route = backStackEntry.toRoute<VehicleDetail>()
 
             // Re-create ViewModel only when the vehicleId changes
@@ -301,7 +329,8 @@ fun CarShowNavHost(
 @Composable
 fun LoginScreen(
     viewModel: AuthViewModel,
-    onLoginSuccess: () -> Unit
+    onLoginSuccess: () -> Unit,
+    onNavigateToRegister: () -> Unit
 ) {
     // Local state to hold user input. "Remember" ensures no values lost during recompositions.
     var username by remember { mutableStateOf("") }
@@ -399,10 +428,142 @@ fun LoginScreen(
                     Text("Login", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
             }
+
+            // Link to Registration
+            TextButton(
+                onClick = onNavigateToRegister,
+                modifier = Modifier.padding(top = 8.dp)
+            ) {
+                Text(
+                    text = "Don't have an account? Sign Up",
+                    color = Color(0xFF1976D2),
+                    fontSize = 14.sp
+                )
+            }
         }
     }
 }
 
+
+
+@Composable
+fun RegisterScreen(
+    viewModel: AuthViewModel,
+    onRegisterSuccess: () -> Unit,
+    onBackToLogin: () -> Unit
+) {
+    // rememberSaveable: "Keeps" the input data during configuration changes (Screen rotation, ...)
+    var username by rememberSaveable { mutableStateOf("") }
+    var email by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+
+    // Listen to loginSuccess flag, when it becomes "true" it triggers "onRegisterSuccess" callback
+    LaunchedEffect(viewModel.loginSuccess) {
+        if (viewModel.loginSuccess) {
+            // Move the user to the next screen (Home)
+            onRegisterSuccess()
+            // Reset flag to "false" to avoid re-navigations if the screen recomposes or return to this screen later
+            viewModel.resetLoginSuccess()
+        }
+    }
+
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "Create Account",
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Username field
+        OutlinedTextField(
+            value = username,
+            onValueChange = { username = it },
+            label = { Text("Username") },
+            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+
+        // Email field
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it },
+            label = { Text("Email") },
+            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+            singleLine = true
+        )
+
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+
+        // Password field
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Password") },
+            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+            modifier = Modifier.fillMaxWidth(),
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            singleLine = true
+        )
+
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+
+        // Error message display
+        viewModel.errorMessage?.let { error ->
+            Text(
+                text = error,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+        }
+
+
+        // Register Button
+        Button(
+            onClick = { viewModel.register(username, email, password) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !viewModel.isLoading,
+            shape = MaterialTheme.shapes.medium
+        ) {
+            if (viewModel.isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = Color.White,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text("Sign Up")
+            }
+        }
+
+        // Navigate back to Login if the user already has credentials
+        TextButton(onClick = onBackToLogin) {
+            Text("Already have an account? Log In")
+        }
+    }
+}
 
 
 

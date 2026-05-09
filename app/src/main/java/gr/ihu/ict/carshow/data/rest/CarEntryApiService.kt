@@ -3,6 +3,9 @@ package gr.ihu.ict.carshow.data.rest
 
 import gr.ihu.ict.carshow.auth.LoginRequest
 import gr.ihu.ict.carshow.auth.LoginResponse
+import gr.ihu.ict.carshow.auth.RegisterRequest
+import gr.ihu.ict.carshow.auth.RegisterResponse
+import gr.ihu.ict.carshow.auth.TokenResponse
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -28,4 +31,10 @@ interface CarEntryApiService {
 
     @POST("/login")
     suspend fun login(@Body request: LoginRequest): LoginResponse
+
+    @POST("api/register/")
+    suspend fun register(@Body request: RegisterRequest): RegisterResponse
+
+    @POST("api/token/refresh/")
+    suspend fun refreshToken(@Body body: Map<String, String>): TokenResponse
 }
