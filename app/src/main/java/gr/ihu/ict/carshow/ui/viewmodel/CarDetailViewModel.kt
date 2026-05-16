@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import gr.ihu.ict.carshow.data.model.CarEntry
+import gr.ihu.ict.carshow.data.model.ReviewRequest
+import gr.ihu.ict.carshow.data.model.VehicleReview
 import gr.ihu.ict.carshow.data.repository.CarRepository
 import gr.ihu.ict.carshow.data.rest.TokenExpiredException
 import kotlinx.coroutines.launch
@@ -15,17 +17,33 @@ class CarDetailViewModel(
 ) : ViewModel() {
 
 
+    // CarEntry state: Holds the details of the currently selected vehicle
     //Compose state mutableStateOf used for simple state observation
     //Private set ensures can be only modified in this ViewModel
     var car by mutableStateOf<CarEntry?>(null)
         private set
 
+    // Global error message state to notify the user about the network or database issues
     var errorMessage by mutableStateOf<String?>(null)
         private set
 
+    // Loading state flag to toggle progress indicator in the UI
     var isLoading by mutableStateOf(false)
         private set
 
+    // Reactive list of reviews, this is updated automatically via the observeReviews Flow
+    var reviews by mutableStateOf<List<VehicleReview>>(emptyList())
+        private set
+
+    // Success message state for temporary feedback (e.g., after successful review submit)
+    var successMessage by mutableStateOf<String?>(null)
+        private set
+
+
+
+
+    // Fetches a specific car by ID
+    // The repository checks the local Room database first for instant display
     fun getCar(id: Int, onTokenExpired: () -> Unit) {
         viewModelScope.launch {
             isLoading = true
@@ -51,9 +69,69 @@ class CarDetailViewModel(
     }
 
 
+    // Reactive observation of the local database reviews
+    // Collecting the Flow from Room so the UI updates automatically whenever
+    // A new review is added or refreshed from the server
+    fun observerReviews(vehicleId: Int) {
+        viewModelScope.launch {
+            repository.getReviewsStream(vehicleId).collect { listFromRoom ->
+                reviews = listFromRoom
+            }
+        }
+    }
+
+
+    // Triggers a network request to refresh reviews from the API
+    // The repository will save the results to Room, which then updates "reviews" via the Flow
+    fun fetchReviews(vehicleId: Int) {
+        viewModelScope.launch {
+            isLoading = true
+
+            try {
+                repository.getVehicleReviews(vehicleId)
+            } catch (e: Exception) {
+                // If API fails we inform the user that they are viewing cached data
+                errorMessage = "Offline mode: Showing cached reviews."
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+
+
+
+    // Sends a new review to the server and local database
+    // Don't need to manually append because observing the database Flow does it automatically
+    // The new review list gets appended auto and the Room handles the update notification
+    fun addReview(vehicleId: Int, rating: Double, comment: String) {
+        viewModelScope.launch {
+            isLoading = true
+            errorMessage = null
+            successMessage = null
+            try {
+                repository.postReview(vehicleId, ReviewRequest(rating, comment))
+
+                successMessage = "Review submitted successfully!"
+            } catch (e: Exception) {
+                errorMessage = "Failed to submit review."
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+
     //Resetting the state so on navigation next car doesn't show even briefly old data
     fun clearState() {
         car = null
+        reviews = emptyList()
         errorMessage = null
+    }
+
+    // Clears the messages to prevent them from reappearing during recomposition
+    fun clearMessages() {
+        errorMessage = null
+        successMessage = null
     }
 }

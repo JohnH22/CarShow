@@ -6,6 +6,8 @@ import gr.ihu.ict.carshow.auth.LoginResponse
 import gr.ihu.ict.carshow.auth.RegisterRequest
 import gr.ihu.ict.carshow.auth.RegisterResponse
 import gr.ihu.ict.carshow.auth.TokenResponse
+import gr.ihu.ict.carshow.data.model.ReviewRequest
+import gr.ihu.ict.carshow.data.model.VehicleReview
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -37,4 +39,10 @@ interface CarEntryApiService {
 
     @POST("api/token/refresh/")
     suspend fun refreshToken(@Body body: Map<String, String>): TokenResponse
+
+    @GET("car_entry/{id}/reviews")
+    suspend fun getVehicleReviews(@Path("id") id: Int): List<VehicleReview>
+
+    @POST("car_entry/{id}/reviews/")
+    suspend fun postReview(@Path("id") id: Int, @Body request: ReviewRequest): VehicleReview
 }

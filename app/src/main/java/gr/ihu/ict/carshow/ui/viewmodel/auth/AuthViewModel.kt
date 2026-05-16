@@ -11,6 +11,7 @@ import gr.ihu.ict.carshow.auth.LoginRequest
 import gr.ihu.ict.carshow.auth.RegisterRequest
 import gr.ihu.ict.carshow.auth.TokenStore
 import gr.ihu.ict.carshow.data.rest.CarEntryApiService
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import java.io.IOException
@@ -38,6 +39,15 @@ class AuthViewModel(
     var isLoading by mutableStateOf(false)
         private set
 
+    // Success message to be displayed on the UI
+    var successMessage by mutableStateOf<String?>(null)
+
+    var showWelcomeMessage by mutableStateOf(false)
+        private set
+
+    var username by mutableStateOf<String?>(null)
+        private set
+
 
     // Attempt to authenticate the user
     // On Success save the tokens and update UI state
@@ -48,8 +58,17 @@ class AuthViewModel(
             try {
                 // Performing network request
                 val response = api.login(LoginRequest(username, password))
+
                 // Save the tokens using TokenStore
                 TokenStore.saveTokens(context, response.access, response.refresh)
+
+                // this@AuthViewModel.username is the created private variable username at the start
+                // username is the one inside this function
+                this@AuthViewModel.username = username
+
+                // Shows Welcome Message on successful login
+                showWelcomeMessage = true
+
                 // Notify UI that navigation can proceed
                 loginSuccess = true
             } catch (e: HttpException) {
@@ -89,9 +108,16 @@ class AuthViewModel(
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
+            successMessage = null
             try {
                 // Call API to create the user account
                 val response = api.register(RegisterRequest(username, email, password))
+
+                // Personalized feedback message for successful account creation using the response with the user's username
+                successMessage = "Account successfully created for user: ${response.username}!"
+
+                // Adding delay so the user has time to read the message
+                delay(2000)
 
                 // Since registration was successful proceed to login
                 // So user doesn't have to type their credentials twice.
@@ -148,5 +174,9 @@ class AuthViewModel(
     // Reset success flag so UI doesn't auto-navigate when returns to the Login Screen
     fun resetLoginSuccess() {
         loginSuccess = false
+    }
+
+    fun resetWelcomeMessageShown(){
+        showWelcomeMessage = false
     }
 }

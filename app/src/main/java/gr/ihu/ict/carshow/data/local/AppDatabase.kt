@@ -5,8 +5,8 @@ import androidx.room.RoomDatabase
 
 
 @Database(
-    entities = [CarEntity::class],
-    version = 1
+    entities = [CarEntity::class, ReviewEntity::class],
+    version = 2
 )
 
 abstract class AppDatabase : RoomDatabase() {

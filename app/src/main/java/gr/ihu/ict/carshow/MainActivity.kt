@@ -6,11 +6,13 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,9 +48,11 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -91,6 +95,9 @@ import gr.ihu.ict.carshow.data.model.CarEntry
 import gr.ihu.ict.carshow.data.repository.CarRepository
 import gr.ihu.ict.carshow.data.repository.RestCarRepository
 import gr.ihu.ict.carshow.data.rest.RetrofitInstance
+import gr.ihu.ict.carshow.ui.components.AddReviewDialog
+import gr.ihu.ict.carshow.ui.components.ReviewItem
+import gr.ihu.ict.carshow.ui.components.StarRatingBar
 import gr.ihu.ict.carshow.ui.viewmodel.CarDetailViewModel
 import gr.ihu.ict.carshow.ui.viewmodel.CarListViewModel
 import gr.ihu.ict.carshow.ui.viewmodel.auth.AuthViewModel
@@ -235,6 +242,7 @@ fun CarShowNavHost(
     // --- HOME SCREEN---
         composable<Home> {
             HomeScreen(
+                viewModel = authViewModel,
                 onSelectCategory = { category ->
                     // Pass selected category as a parameter to Vehicles route
                     navController.navigate(Vehicles(category))
@@ -471,7 +479,8 @@ fun RegisterScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(24.dp)
+            .animateContentSize(), // Makes the screen resize smoothly when error messages pop up
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -484,7 +493,7 @@ fun RegisterScreen(
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Username field
+        // Username text field
         OutlinedTextField(
             value = username,
             onValueChange = { username = it },
@@ -498,7 +507,7 @@ fun RegisterScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
 
-        // Email field
+        // Email text field
         OutlinedTextField(
             value = email,
             onValueChange = { email = it },
@@ -513,7 +522,7 @@ fun RegisterScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
 
-        // Password field
+        // Password text field
         OutlinedTextField(
             value = password,
             onValueChange = { password = it },
@@ -529,18 +538,32 @@ fun RegisterScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
 
-        // Error message display
+        // Show green success message if everything went well
+        viewModel.successMessage?.let { message ->
+            Text(
+                text = message,
+                color = Color(0xFF2E7D32),
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+            )
+        }
+
+        // Red Error message display if registration failed
         viewModel.errorMessage?.let { error ->
             Text(
                 text = error,
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(bottom = 16.dp)
+                modifier = Modifier
+                    .padding(bottom = 16.dp)
             )
         }
 
 
-        // Register Button
+        // Register Button: disables itself and shows a loading spinner while waiting for the server
         Button(
             onClick = { viewModel.register(username, email, password) },
             modifier = Modifier.fillMaxWidth(),
@@ -570,10 +593,33 @@ fun RegisterScreen(
 
 @Composable
 fun HomeScreen(
+    viewModel: AuthViewModel,
     onSelectCategory: (String) -> Unit, // Callback for category selection.
     onAddVehicle: () -> Unit, // Callback to navigate to AddVehicle screen.
     onLogout: () -> Unit // Callback to handle user logout.
 ) {
+    // Get the current Android Context to allow showing Toast notification
+    val context = LocalContext.current
+
+    // Triggers when "showWelcomeMessage" changes to true
+    LaunchedEffect(viewModel.showWelcomeMessage) {
+        if (viewModel.showWelcomeMessage) {
+            // If username is null for any reason use "User" as a default name
+            // If the left side of the ?: (elvis operator) is null execute the right side
+            val name = viewModel.username ?: "User"
+            // Display a popup message at the bottom of the screen
+            android.widget.Toast.makeText(
+                context,
+                "Welcome back, $name!",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+
+            // Reset the flag in the ViewModel
+            // Prevents the toast from reappearing during screen recompositions (screen rotation, ...)
+            viewModel.resetWelcomeMessageShown()
+        }
+    }
+
     // Local list of available categories, defines which buttons will be generated in UI.
     val categories = listOf("Sedan", "SUV", "Electric", "Sport")
 
@@ -630,7 +676,7 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Logout option
+            // Red Button Logout option for signing out
             TextButton(onClick = onLogout) {
                 Text(
                     "Log Out",
@@ -810,9 +856,26 @@ fun VehicleDetailScreen(
     onBackHome: () -> Unit,
     onTokenExpired: () -> Unit
 ) {
+    // Local state to control whether the review dialog pop-up is visible
+    var showReviewDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+
+    // Listens for success messages from the ViewModel to display short pop-up alerts (Toasts)
+    LaunchedEffect(viewModel.successMessage) {
+        viewModel.successMessage?.let {
+            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+            // Clear message immediately after showing it to prevent repeating the Toast on screen rotation
+            viewModel.clearMessages()
+        }
+    }
+
     // Fetch vehicle details whenever the vehicleId changes or the screen is first composed
     LaunchedEffect(vehicleId) {
         viewModel.getCar(vehicleId, onTokenExpired)
+        // Start listening to the local database for real-time review updates
+        viewModel.observerReviews(vehicleId)
+        viewModel.fetchReviews(vehicleId)
     }
 
     // Clear the ViewModel state when the user leaves this screen
@@ -828,9 +891,20 @@ fun VehicleDetailScreen(
             .background(Color(0xFF121212)), // Dark background
         contentAlignment = Alignment.Center
     ) {
+
+        if (showReviewDialog) {
+            AddReviewDialog(
+                onDismiss = { showReviewDialog = false },
+                onConfirm = { rating, comment ->
+                    viewModel.addReview(vehicleId, rating, comment)
+                    showReviewDialog = false
+                }
+            )
+        }
+
         when {
             // Displaying a circular progress indicator while fetching data from repository
-            viewModel.isLoading -> {
+            viewModel.isLoading && viewModel.car == null -> {
                 CircularProgressIndicator(color = Color(0xFF1976D2))
             }
 
@@ -919,6 +993,9 @@ fun VehicleDetailScreen(
                             textAlign = TextAlign.Center
                         )
 
+                        // Show the overall vehicle rating score using stars
+                        StarRatingBar(rating = car.rating.toDouble())
+
                         Spacer(modifier = Modifier.height(12.dp))
 
 
@@ -936,6 +1013,56 @@ fun VehicleDetailScreen(
                             value = "${car.price} €",
                             isHighlight = true // Highlight price with a specific color
                         )
+
+                        Spacer(modifier = Modifier.height(32.dp))
+
+                        // Visual line separator before the reviews section starts
+                        HorizontalDivider(color = Color.DarkGray, thickness = 1.dp)
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Section header showing total number of reviews and a button to open the dialog form
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Reviews (${viewModel.reviews.size})",
+                                color = Color.White,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            TextButton(
+                                onClick = { showReviewDialog = true }
+                            ) {
+                                Text("Write One", color = Color(0xFF1976D2))
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+
+                        // Dynamic review area: Show welcome text if empty, or loop and build list items
+                        if (viewModel.reviews.isEmpty()) {
+                            Text(
+                                text = "No reviews yet. Be the first to share yours!",
+                                color = Color.Gray,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(vertical = 16.dp)
+                            )
+                        } else {
+                            viewModel.reviews.forEach { review ->
+                                ReviewItem(
+                                    username = review.username,
+                                    rating = review.rating,
+                                    comment = review.comment,
+                                    date = review.createdAt
+                                )
+                            }
+                        }
 
                         Spacer(modifier = Modifier.height(32.dp))
 
