@@ -15,7 +15,7 @@ data class ReviewEntity(
     // The name of the user who wrote the review
     val username: String,
     // The star rating given by the user (e.g. 4.5)
-    val rating: Double,
+    val rating: Float,
     // The actual text feedback from the user (Review text)
     val comment: String,
     // The date and the time when the review was created

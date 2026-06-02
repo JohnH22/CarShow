@@ -39,6 +39,9 @@ class CarDetailViewModel(
     var successMessage by mutableStateOf<String?>(null)
         private set
 
+    var isDeleteSuccess by mutableStateOf(false)
+        private set
+
 
 
 
@@ -104,7 +107,7 @@ class CarDetailViewModel(
     // Sends a new review to the server and local database
     // Don't need to manually append because observing the database Flow does it automatically
     // The new review list gets appended auto and the Room handles the update notification
-    fun addReview(vehicleId: Int, rating: Double, comment: String) {
+    fun addReview(vehicleId: Int, rating: Float, comment: String) {
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
@@ -122,16 +125,42 @@ class CarDetailViewModel(
     }
 
 
+    fun deleteVehicle(carEntry: CarEntry, onTokenExpired: () -> Unit) {
+        viewModelScope.launch {
+            isLoading = true
+            errorMessage = null
+            try {
+                repository.deleteCar(carEntry)
+                successMessage = "Vehicle deleted successfully!"
+                isDeleteSuccess = true
+            } catch (e: TokenExpiredException) {
+                onTokenExpired()
+            } catch (e: Exception) {
+                errorMessage = "Failed to delete the vehicle. Please check your connection."
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+
+
     //Resetting the state so on navigation next car doesn't show even briefly old data
     fun clearState() {
         car = null
         reviews = emptyList()
         errorMessage = null
+        isDeleteSuccess = false
     }
 
     // Clears the messages to prevent them from reappearing during recomposition
     fun clearMessages() {
         errorMessage = null
         successMessage = null
+    }
+
+    // Resets the delete flag after the UI has successfully reacted to it
+    fun resetDeleteFlag() {
+        isDeleteSuccess = false
     }
 }

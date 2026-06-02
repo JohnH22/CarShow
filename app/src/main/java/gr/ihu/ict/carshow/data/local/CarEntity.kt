@@ -16,9 +16,10 @@ data class CarEntity(
     val year: Int,
     val price: Double,
     val priceNegotiable: Boolean,
-    val mainImageData: ByteArray,
+    val imageUrls: List<String>,
     val description: String,
-    val engine: String,
+    val engine: Int,
+    val fuelType: String,
     val horsepower: Int,
     val drivetrain: String,
     val transmission: String,
@@ -33,7 +34,7 @@ data class CarEntity(
     val isRightHandDrive: Boolean,
     val location: String,
     val sellerType: String,
-    val rating: Double,
+    val rating: Float, // Changed from Double to Float
     val videoUrl: String? = null
 
 )

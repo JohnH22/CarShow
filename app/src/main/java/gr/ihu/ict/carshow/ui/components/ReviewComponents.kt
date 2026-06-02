@@ -40,9 +40,9 @@ import androidx.compose.ui.unit.sp
 // If not pass it the bar is read-only (just for showing the score)
 @Composable
 fun StarRatingBar(
-    rating: Double,
+    rating: Float,
     maxStars: Int = 5,
-    onRatingChanged: ((Double) -> Unit)? = null // Nullable callback determines if the bar is interactive
+    onRatingChanged: ((Float) -> Unit)? = null // Nullable callback determines if the bar is interactive
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         for (i in 1..maxStars) {
@@ -62,7 +62,7 @@ fun StarRatingBar(
                     .then(
                         // If a callback is provided, make the star clickable to update rating (only if want user to change the rating)
                         if (onRatingChanged != null) {
-                            Modifier.clickable{ onRatingChanged(i.toDouble()) }
+                            Modifier.clickable{ onRatingChanged(i.toFloat()) }
                         } else {
                             Modifier
                         }
@@ -86,7 +86,7 @@ fun StarRatingBar(
 @Composable
 fun ReviewItem(
     username: String,
-    rating: Double,
+    rating: Float,
     comment: String,
     date: String
 ) {
@@ -145,10 +145,10 @@ fun ReviewItem(
 @Composable
 fun AddReviewDialog(
     onDismiss: () -> Unit,
-    onConfirm: (Double, String) -> Unit
+    onConfirm: (Float, String) -> Unit
 ) {
     // Temporary Local state to hold user input (what user selects/types) before hitting submit button
-    var rating by remember{ mutableStateOf(0.0) }
+    var rating by remember{ mutableStateOf(0.0f) }
     var comment by remember { mutableStateOf("") }
 
 
@@ -194,7 +194,7 @@ fun AddReviewDialog(
                 // Trigger callback for sending the selected rating and text comment back when clicked
                 onClick = { onConfirm(rating, comment) },
                 // Validation, disable button if no rating is given or comment is empty
-                enabled = rating > 0 && comment.isNotBlank()
+                enabled = rating > 0f && comment.isNotBlank()
             ) {
                 Text("Submit")
             }

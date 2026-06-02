@@ -5,19 +5,20 @@ import android.graphics.Bitmap
 data class CarEntry(
     val id: Int =0,
     val brand: String,
-    val model: String,
+    val model: String, // Matches model_name in Django backend
     val category: CarCategory,
     val year: Int,
     val price: Double,
     val priceNegotiable: Boolean = false,
-    val mainImage: Bitmap,
+    val imageUrls: List<String> = emptyList(),
     val description: String = "No description provided.",
-    val engine: String = "N/A",
+    val engine: Int = 0, // Changed from String to Int
+    val fuelType: String,
     val horsepower: Int = 0,
     val drivetrain: String = "FWD",
     val transmission: String = "Manual",
     val torque: Int = 0,
-    val consumption: String = "0.0 l/100km",
+    val consumption: Double = 0.0, // Changed from String to Double (e.g., 5.4)
     val mileage: Int = 0,
     val interiorColor: String = "Black",
     val exteriorColor: String = "White",

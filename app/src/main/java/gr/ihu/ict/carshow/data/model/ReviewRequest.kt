@@ -5,7 +5,7 @@ package gr.ihu.ict.carshow.data.model
 // It contains only the fields required by the API for creation
 data class ReviewRequest(
     // The star rating given by the user for the vehicle
-    val rating: Double,
+    val rating: Float,
     // The text feedback or comments about the vehicle (Review text)
     val comment: String
 )

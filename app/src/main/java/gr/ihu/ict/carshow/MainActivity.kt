@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -12,7 +13,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,6 +35,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -39,26 +44,37 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -88,19 +104,24 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import androidx.room.util.TableInfo
+import coil.compose.AsyncImage
 import gr.ihu.ict.carshow.auth.TokenStore
 import gr.ihu.ict.carshow.data.local.DatabaseProvider
 import gr.ihu.ict.carshow.data.model.CarCategory
 import gr.ihu.ict.carshow.data.model.CarEntry
+import gr.ihu.ict.carshow.data.model.SellerType
 import gr.ihu.ict.carshow.data.repository.CarRepository
 import gr.ihu.ict.carshow.data.repository.RestCarRepository
 import gr.ihu.ict.carshow.data.rest.RetrofitInstance
 import gr.ihu.ict.carshow.ui.components.AddReviewDialog
 import gr.ihu.ict.carshow.ui.components.ReviewItem
 import gr.ihu.ict.carshow.ui.components.StarRatingBar
+import gr.ihu.ict.carshow.ui.components.YoutubePlayer
 import gr.ihu.ict.carshow.ui.viewmodel.CarDetailViewModel
 import gr.ihu.ict.carshow.ui.viewmodel.CarListViewModel
 import gr.ihu.ict.carshow.ui.viewmodel.auth.AuthViewModel
+import gr.ihu.ict.carshow.ui.components.extractYoutubeVideoId
 import java.io.File
 
 
@@ -268,9 +289,28 @@ fun CarShowNavHost(
             // that were passed to this screen during navigation
             val route = backStackEntry.toRoute<Vehicles>()
 
-            // Re-create ViewModel only when the category changes
-            val viewModel = remember(route.category) {
+            // Initializing ViewModel linked to Android Lifecycle
+            // It survives configuration changes and screen recompositions perfectly
+            val viewModel: CarListViewModel = androidx.lifecycle.viewmodel.compose.viewModel {
                 CarListViewModel(repository)
+            }
+
+
+            LaunchedEffect(route.category) {
+                viewModel.updateFilters(
+                    minPrice = viewModel.uiState.value.filters.minPrice,
+                    maxPrice = viewModel.uiState.value.filters.maxPrice,
+                    minEngine = viewModel.uiState.value.filters.minEngine,
+                    maxEngine = viewModel.uiState.value.filters.maxEngine,
+                    minMileage = viewModel.uiState.value.filters.minMileage,
+                    maxMileage = viewModel.uiState.value.filters.maxMileage,
+                    minHP = viewModel.uiState.value.filters.minHP,
+                    maxHP = viewModel.uiState.value.filters.maxHP,
+                    minYear = viewModel.uiState.value.filters.minYear,
+                    maxYear = viewModel.uiState.value.filters.maxYear,
+                    ordering = viewModel.uiState.value.filters.ordering,
+                    category = if (route.category == "ALL") null else route.category
+                )
             }
 
             VehiclesScreen(
@@ -288,7 +328,11 @@ fun CarShowNavHost(
 
     // --- ADD VEHICLE SCREEN ---
         composable<AddVehicle> {
-            val viewModel = remember { CarListViewModel(repository) }
+            // Initializing ViewModel linked to Android Lifecycle
+            // It survives configuration changes and screen recompositions perfectly
+            val viewModel: CarListViewModel = androidx.lifecycle.viewmodel.compose.viewModel {
+                CarListViewModel(repository)
+            }
 
             AddVehicleScreen(
                 viewModel = viewModel,
@@ -707,7 +751,7 @@ fun HomeScreen(
 
 
 
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable fun VehiclesScreen(
     category: String,
     viewModel: CarListViewModel,
@@ -719,17 +763,39 @@ fun HomeScreen(
     // value state will auto update whenever the UI data changes
     val state by viewModel.uiState.collectAsState()
 
+    // Controls bottom sheet behavior (skipPartiallyExpanded = true ensures it opens directly to full screen)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    // Fetch the fresh data from server whenever the category changes
-    LaunchedEffect(category) {
-        viewModel.refreshData(onTokenExpired)
-    }
+    // Visibility flag to track whether the Bottom Sheet drawer is open (true) or closed (false)
+    var showBottomSheet by remember { mutableStateOf(false) }
 
-    // Filtering full list of cars based on selected category, equals and ignoreCase
-    // secures it is safe against typo/casing mismatches
-    val filteredItems = state.items.filter {
-        it.category.displayName.equals(category, ignoreCase = true)
-    }
+    // Local state variables holding the raw text typed by the user inside each filter field
+    // Initialized with empty strings ("") so the TextFields start blank
+    var minPriceInput by remember { mutableStateOf("") }
+    var maxPriceInput by remember { mutableStateOf("") }
+    var minEngineInput by remember { mutableStateOf("") }
+    var maxEngineInput by remember { mutableStateOf("") }
+    var minMileageInput by remember { mutableStateOf("") }
+    var maxMileageInput by remember { mutableStateOf("") }
+    var minHPInput by remember { mutableStateOf("") }
+    var maxHPInput by remember { mutableStateOf("") }
+    var minYearInput by remember { mutableStateOf("") }
+    var maxYearInput by remember { mutableStateOf("") }
+
+    // Dropdown sorting menu control states
+    var showSortMenu by remember { mutableStateOf(false) }
+    var selectedSortLabel by remember { mutableStateOf("Default") }
+
+
+    // Map user friendly labels to Django backend filter keys
+    val sortingOptions = listOf(
+        "Default" to "-id",
+        "Price: Low to High" to "price",
+        "Price: High to Low" to "-price",
+        "Year: Newest First" to "-year",
+        "Engine: Smallest First" to "engine"
+    )
+
 
     Column(
         modifier = Modifier
@@ -747,12 +813,326 @@ fun HomeScreen(
             color = Color.White
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Filter and Sort toggle buttons row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // The filter icon button located in the top row of the screen
+            IconButton(
+                onClick = {
+                    showBottomSheet = true // Trigger do display the ModalBottomSheet drawer on screen
+                }
+            ) {
+                Icon(
+                    Icons.Default.FilterList,
+                    contentDescription = "Filters",
+                    tint = Color.White
+                )
+            }
+
+            // Sorting Selection Box trigger
+            Box {
+                Row(
+                    modifier = Modifier
+                        .clickable { showSortMenu = true }
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Sort: $selectedSortLabel",
+                        color = Color.LightGray,
+                        fontSize = 14.sp
+                    )
+                    Icon(
+                        Icons.Default.ArrowDropDown,
+                        contentDescription = null,
+                        tint = Color.LightGray
+                    )
+                }
+
+
+                // Sorting dropdown list menu overlay
+                DropdownMenu(
+                    expanded = showSortMenu,
+                    onDismissRequest = { showSortMenu = false }
+                ) {
+                    sortingOptions.forEach { (label, backendKey) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                selectedSortLabel = label
+                                showSortMenu = false
+
+                                // Send updated ordering choice straight to server API viewmodel routing
+                                viewModel.updateFilters(
+                                    category = if (category == "ALL") null else category,
+                                    minPrice = minPriceInput.toDoubleOrNull(),
+                                    maxPrice = maxPriceInput.toDoubleOrNull(),
+                                    minEngine = minEngineInput.toIntOrNull(),
+                                    maxEngine = maxEngineInput.toIntOrNull(),
+                                    minMileage = minMileageInput.toIntOrNull(),
+                                    maxMileage = maxMileageInput.toIntOrNull(),
+                                    minHP = minHPInput.toIntOrNull(),
+                                    maxHP = maxHPInput.toIntOrNull(),
+                                    minYear = minYearInput.toIntOrNull(),
+                                    maxYear = maxYearInput.toIntOrNull(),
+                                    ordering = backendKey,
+                                    onTokenExpired = onTokenExpired
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+
+        // Modal Bottom Sheet for Filters
+        if (showBottomSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showBottomSheet = false },
+                sheetState = sheetState,
+                containerColor = Color(0xFF1E1E1E), // Dark UI color
+                contentColor = Color.White
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()) // For smaller mobile devices (enables scrolling)
+                        .padding(start = 24.dp, end = 24.dp, bottom = 42.dp, top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "Filter Vehicles",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+
+                    // Row 1: Price Filter
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = minPriceInput,
+                            onValueChange = { minPriceInput = it },
+                            label = { Text("Min Price") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                        OutlinedTextField(
+                            value = maxPriceInput,
+                            onValueChange = { maxPriceInput = it },
+                            label = { Text("Max Price") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                    }
+
+                    // Row 2: Engine CC Filter
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = minEngineInput,
+                            onValueChange = { minEngineInput = it },
+                            label = { Text("Min CC") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                        OutlinedTextField(
+                            value = maxEngineInput,
+                            onValueChange = { maxEngineInput = it },
+                            label = { Text("Max CC") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                    }
+
+                    // Row 3: Mileage Filter
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = minMileageInput,
+                            onValueChange = { minMileageInput = it },
+                            label = { Text("Min Mileage") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                        OutlinedTextField(
+                            value = maxMileageInput,
+                            onValueChange = { maxMileageInput = it },
+                            label = { Text("Max Mileage") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+
+                    }
+
+                    // Row 4: Horsepower Filter
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = minHPInput,
+                            onValueChange = { minHPInput = it },
+                            label = { Text("Min HP") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                        OutlinedTextField(
+                            value = maxHPInput,
+                            onValueChange = { maxHPInput = it },
+                            label = { Text("Max HP") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                    }
+
+                    // Production Year Filter
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = minYearInput,
+                            onValueChange = { minYearInput = it },
+                            label = { Text("Min Year") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                        OutlinedTextField(
+                            value = maxYearInput,
+                            onValueChange = { maxYearInput = it },
+                            label = { Text("Max Year") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Action Buttons Row inside the bottom sheet
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Reset Button to clear all filters and reload data
+                        Button(
+                            onClick = {
+                                // Clear all local UI inputs (wipes out whatever the user typed)
+                                minPriceInput = ""
+                                maxPriceInput = ""
+                                minEngineInput = ""
+                                maxEngineInput = ""
+                                minMileageInput = ""
+                                maxMileageInput = ""
+                                minHPInput = ""
+                                maxHPInput = ""
+                                minYearInput = ""
+                                maxYearInput = ""
+                                selectedSortLabel = "Default"
+                                // Notifies ViewModel to reset active filters and load original list
+                                viewModel.clearFilters(onTokenExpired)
+                                showBottomSheet = false // close drawer reactively
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.DarkGray
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Clear")
+                        }
+
+                        // Apply Button: Sends the typed text as filters to the backend
+                        Button(
+                            onClick = {
+                                // Finds which backend key matches the selected sort option (e.g., "price")
+                                val activeSort = sortingOptions.find { it.first == selectedSortLabel }?.second
+                                // Convert text inputs to numbers (null if empty) and update the list
+                                viewModel.updateFilters(
+                                    category = if (category == "ALL") null else category, // "ALL" means no specific category filter
+                                    minPrice = minPriceInput.toDoubleOrNull(),
+                                    maxPrice = maxPriceInput.toDoubleOrNull(),
+                                    minEngine = minEngineInput.toIntOrNull(),
+                                    maxEngine = maxEngineInput.toIntOrNull(),
+                                    minMileage = minMileageInput.toIntOrNull(),
+                                    maxMileage = maxMileageInput.toIntOrNull(),
+                                    minHP = minHPInput.toIntOrNull(),
+                                    maxHP = maxHPInput.toIntOrNull(),
+                                    minYear = minYearInput.toIntOrNull(),
+                                    maxYear = maxYearInput.toIntOrNull(),
+                                    ordering = activeSort,
+                                    onTokenExpired = onTokenExpired
+                                )
+                                // Trigger to close the filter sheet to show results
+                                showBottomSheet = false
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2)),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Apply")
+                        }
+                    }
+                }
+            }
+        }
+
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Display error message and retry button if something goes wrong
         state.errorMessage?.let { message ->
             Column(
-                horizontalAlignment = Alignment.CenterHorizontally) {
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 Text(
                     text = message,
                     color = Color.Red
@@ -775,14 +1155,14 @@ fun HomeScreen(
             }
         }
 
-        // Show the list of filtered cars using LazyColumn(saving memory, smooth scrolling)
+        // Show the list of filtered cars mapped reactively from the backend Room payload synchronization
         if (!state.isLoading && state.errorMessage == null) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp) // Gap between vehicle cards
             ) {
-                items(filteredItems) {car ->
+                items(state.items) { car ->
                     VehicleItemCard(
                         car = car,
                         onClick = { onVehicleClick(car.id) }
@@ -802,7 +1182,7 @@ fun VehicleItemCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable{ onClick() }, // Navigation to details
+            .clickable { onClick() }, // Navigation to details
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
     ) {
@@ -810,18 +1190,36 @@ fun VehicleItemCard(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Placeholder Box for the vehicle image/icon
-            Box(
+            // Card Image container using Coil to load from network URL
+            Card(
                 modifier = Modifier
-                    .size(80.dp)
-                    .background(Color.DarkGray, RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
+                    .size(80.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.DarkGray)
             ) {
-                Icon(
-                    Icons.Default.DirectionsCar,
-                    contentDescription = null,
-                    tint = Color.LightGray
-                )
+                // Extracts the first available image URL from the dynamic list
+                val mainImageUrl = car.imageUrls.firstOrNull()
+
+                if (mainImageUrl != null) {
+                    AsyncImage(
+                        model = mainImageUrl,
+                        contentDescription = "${car.brand} ${car.model} Thumbnail",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop // Crops to fill the container
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.DirectionsCar,
+                            contentDescription = "No Image Available",
+                            tint = Color.LightGray
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.width(16.dp))
@@ -833,6 +1231,15 @@ fun VehicleItemCard(
                     style = MaterialTheme.typography.titleLarge,
                     color = Color.White
                 )
+                // Engine and Fuel Type Specifications Row
+                Text(
+                    text = "${car.engine} cc | ${car.fuelType}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.LightGray
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
                 // Pricing info with color (green)
                 Text(
                     text = "Price: ${car.price} €",
@@ -847,7 +1254,7 @@ fun VehicleItemCard(
 
 
 
-
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun VehicleDetailScreen(
     vehicleId: Int,
@@ -858,6 +1265,8 @@ fun VehicleDetailScreen(
 ) {
     // Local state to control whether the review dialog pop-up is visible
     var showReviewDialog by remember { mutableStateOf(false) }
+    // Local state to control whether the delete confirmation pop-up is visible
+    var showDeleteDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
 
@@ -867,6 +1276,14 @@ fun VehicleDetailScreen(
             Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
             // Clear message immediately after showing it to prevent repeating the Toast on screen rotation
             viewModel.clearMessages()
+        }
+    }
+
+    // Listens for successful deletion to auto navigate the user back to list
+    LaunchedEffect(viewModel.isDeleteSuccess) {
+        if (viewModel.isDeleteSuccess) {
+            onBack() // Go back to the vehicles list
+            viewModel.resetDeleteFlag() // Clear the flag
         }
     }
 
@@ -898,6 +1315,33 @@ fun VehicleDetailScreen(
                 onConfirm = { rating, comment ->
                     viewModel.addReview(vehicleId, rating, comment)
                     showReviewDialog = false
+                }
+            )
+        }
+
+        if (showDeleteDialog) {
+            AlertDialog(
+                onDismissRequest = { showDeleteDialog = false },
+                title = { Text("Delete Vehicle") },
+                text = { Text("Are you sure you want to permanently delete this vehicle and all of its reviews? This action cannot be undone!") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            // If the car object is valid, request its deletion
+                            viewModel.car?.let { viewModel.deleteVehicle(it, onTokenExpired) }
+                            showDeleteDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)) // Red color
+                    ) {
+                        Text("Delete", color = Color.White)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showDeleteDialog = false }
+                    ) {
+                        Text("Cancel")
+                    }
                 }
             )
         }
@@ -965,36 +1409,100 @@ fun VehicleDetailScreen(
                             .padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Image/Icon placeholder for the vehicle
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(1.5f)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(Color.DarkGray),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.DirectionsCar,
-                                contentDescription = "Vehicle Image",
-                                modifier = Modifier.size(100.dp),
-                                tint = Color.Gray
-                            )
+                        // Dynamic Image Slider (HorizontalPager + Coil)
+                        if (car.imageUrls.isNotEmpty()) {
+                            // Remember the state of the pager based on the total number of items
+                            val pagerState = rememberPagerState(pageCount = { car.imageUrls.size })
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1.5f)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(Color.DarkGray)
+                            ) {
+                                // Horizontal Pager allows user to swipe through the images
+                                HorizontalPager(
+                                    state = pagerState,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                ) { page ->
+                                    AsyncImage(
+                                        model = car.imageUrls[page],
+                                        contentDescription = "Vehicle Image ${page + 1}",
+                                        modifier = Modifier
+                                            .fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+
+                                // Page Indicator (e.g., "1 / 3") pinned at the bottom-end corner
+                                Card(
+                                    colors = CardDefaults.cardColors(contentColor = Color.Black.copy(alpha = 0.6f)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .padding(32.dp)
+                                        .align(Alignment.BottomEnd)
+                                ) {
+                                    Text(
+                                        text = "${pagerState.currentPage + 1} / ${car.imageUrls.size}",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        } else {
+                            // Fallback static Box if the Server returns no image URLs
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1.5f)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(Color.DarkGray),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DirectionsCar,
+                                    contentDescription = "No Image Available",
+                                    modifier = Modifier.size(100.dp),
+                                    tint = Color.Gray
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        // Vehicle identity: Brand & Model display
-                        Text(
-                            text = "${car.brand} ${car.model}",
-                            fontSize = 30.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            textAlign = TextAlign.Center
-                        )
+                        // Row layout containing the vehicle title on the left and the deletion icon on the right
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Vehicle identity: Brand & Model display
+                            Text(
+                                text = "${car.brand} ${car.model}",
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                modifier = Modifier.weight(1f) // Takes up all remaining space on the left
+                            )
+
+                            IconButton(
+                                onClick = { showDeleteDialog = true }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete Vehicle",
+                                    tint = Color(0xFFE53935), // Red color
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
 
                         // Show the overall vehicle rating score using stars
-                        StarRatingBar(rating = car.rating.toDouble())
+                        StarRatingBar(rating = car.rating)
 
                         Spacer(modifier = Modifier.height(12.dp))
 
@@ -1013,6 +1521,53 @@ fun VehicleDetailScreen(
                             value = "${car.price} €",
                             isHighlight = true // Highlight price with a specific color
                         )
+                        DetailedSpecRow(
+                            label = "Engine",
+                            value = "${car.engine} cc",
+                        )
+                        DetailedSpecRow(
+                            label = "Horsepower",
+                            value = "${car.horsepower} hp",
+                        )
+                        DetailedSpecRow(
+                            label = "Fuel Consumption",
+                            value = "${car.consumption} l/100km",
+                        )
+                        DetailedSpecRow(
+                            label = "Mileage",
+                            value = "${car.mileage} km",
+                        )
+                        DetailedSpecRow(
+                            label = "Transmission",
+                            value = car.transmission,
+                        )
+                        DetailedSpecRow(
+                            label = "Drivetrain",
+                            value = car.drivetrain,
+                        )
+
+                        // Extract the unique 11-character ID from the backend video URL string
+                        val videoId = extractYoutubeVideoId(car.videoUrl)
+
+                        // Only render the video player layout section if a valid YouTube ID was found
+                        if (videoId != null) {
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            // Title section for the video player area
+                            Text(
+                                text = "Video Review",
+                                color = Color.White,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Display the AndroidView YouTube Player component into the Compose
+                            // (Display embedded YouTube video player)
+                            YoutubePlayer(youtubeVideoId = videoId)
+                        }
 
                         Spacer(modifier = Modifier.height(32.dp))
 
@@ -1129,7 +1684,7 @@ fun DetailedSpecRow(
 
 
 
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddVehicleScreen(
     viewModel: CarListViewModel,
@@ -1137,12 +1692,42 @@ fun AddVehicleScreen(
     onTokenExpired: () -> Unit
 ) {
     // Using "remember" to keep input values along recomposition
+    // Core inputs
     var brand by remember { mutableStateOf("") }
     var modelName by remember { mutableStateOf("") }
     var year by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
+    var engine by remember { mutableStateOf("") }
+    var horsepower by remember { mutableStateOf("") }
+    var mileage by remember { mutableStateOf("") }
+
+    // Dropdowns
+    var fuelType by remember { mutableStateOf("Gasoline") }
+    var showFuelMenu by remember { mutableStateOf(false) }
+    val fuelOptions = listOf("Gasoline", "Diesel", "Electric", "Hybrid")
+
     var selectedCategory by remember { mutableStateOf(CarCategory.SEDAN) }
-    var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    // Changed from Bitmap to Uri, keeps track of the chosen image location
+    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
+
+    var description by remember { mutableStateOf("") }
+    var priceNegotiable by remember { mutableStateOf(false) }
+    var drivetrain by remember { mutableStateOf("") }
+    var transmission by remember { mutableStateOf("") }
+    var torque by remember { mutableStateOf("") }
+    var consumption by remember { mutableStateOf("") }
+    var interiorColor by remember { mutableStateOf("") }
+    var exteriorColor by remember { mutableStateOf("") }
+    var wheelSize by remember { mutableStateOf("") }
+    var doors by remember { mutableStateOf("") }
+    var passengers by remember { mutableStateOf("") }
+    var isRightHandDrive by remember { mutableStateOf(false) }
+    var location by remember { mutableStateOf("") }
+    var videoUrl by remember { mutableStateOf("") }
+
+    var sellerType by remember { mutableStateOf(SellerType.PRIVATE) }
+    var showSellerMenu by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
@@ -1158,16 +1743,14 @@ fun AddVehicleScreen(
     // Triggered when the user takes a photo successfully
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         if (success) {
-            val stream = context.contentResolver.openInputStream(photoUri)
-            capturedBitmap = BitmapFactory.decodeStream(stream)
+            selectedImageUri = photoUri // Save the file URI directly
         }
     }
 
-    // Allows the user to pick an existing photo from the device
+    // Allows the user to pick an existing photo from the device gallery
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let {
-            val stream = context.contentResolver.openInputStream(it)
-            capturedBitmap = BitmapFactory.decodeStream(stream)
+            selectedImageUri = it // Save the gallery URI directly
         }
     }
 
@@ -1179,8 +1762,10 @@ fun AddVehicleScreen(
     }
 
     // Simple check to ensure all required fields are filled and a photo is selected
+    // Now checks that an image URI is selected instead of a Bitmap
     val isFormValid = brand.isNotBlank() && modelName.isNotBlank()
-            && year.isNotBlank() && price.isNotBlank() && capturedBitmap != null
+            && year.isNotBlank() && price.isNotBlank() && engine.isNotBlank()
+            && mileage.isNotBlank() && selectedImageUri != null
 
     // UI layout
     Column(
@@ -1205,10 +1790,14 @@ fun AddVehicleScreen(
                 .size(200.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(Color(0xFF1E1E1E))
-                .clickable{
+                .clickable {
                     // Check for camera permissions before launching the camera
                     val permission = Manifest.permission.CAMERA
-                    if (ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) {
+                    if (ContextCompat.checkSelfPermission(
+                            context,
+                            permission
+                        ) == PackageManager.PERMISSION_GRANTED
+                    ) {
                         cameraLauncher.launch(photoUri)
                     } else {
                         permissionLauncher.launch(permission)
@@ -1216,10 +1805,10 @@ fun AddVehicleScreen(
                 },
             contentAlignment = Alignment.Center
         ) {
-            capturedBitmap?.let { bitmap ->
-                // Display the selected captured image
-                Image(
-                    bitmap = bitmap.asImageBitmap(),
+            // If a Uri exists , Coil loads it instantly into the preview box
+            selectedImageUri?.let { uri ->
+                AsyncImage(
+                    model = uri,
                     contentDescription = "Vehicle Preview",
                     modifier = Modifier
                         .fillMaxSize(),
@@ -1248,7 +1837,7 @@ fun AddVehicleScreen(
         }
 
 
-        // Using custom VehicleTextField
+        // Standard TextFields: Using custom VehicleTextField
         VehicleTextField(
             value = brand,
             onValueChange = { brand = it },
@@ -1259,18 +1848,367 @@ fun AddVehicleScreen(
             onValueChange = { modelName = it },
             label = "Model (e.g. M4)"
         )
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier.weight(1f)
+            ) {
+                VehicleTextField(
+                    value = year,
+                    onValueChange = { year = it },
+                    label = "Year",
+                    isNumber = true
+                )
+            }
+
+            Box(
+                modifier = Modifier.weight(1f)
+            )
+            {
+                VehicleTextField(
+                    value = price,
+                    onValueChange = { price = it },
+                    label = "Price (€)",
+                    isNumber = true
+                )
+            }
+        }
+
+        // Checkbox for Negotiable Price row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = priceNegotiable,
+                onCheckedChange = { priceNegotiable = it }
+            )
+            Text(
+                "Price is Negotiable",
+                color = Color.White
+            )
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier.weight(1f)
+            )
+            {
+                VehicleTextField(
+                    value = engine,
+                    onValueChange = { engine = it },
+                    label = "Engine (CC)",
+                    isNumber = true
+                )
+            }
+
+            Box(
+                modifier = Modifier.weight(1f)
+            )
+            {
+                VehicleTextField(
+                    value = horsepower,
+                    onValueChange = { horsepower = it },
+                    label = "Horsepower (HP)",
+                    isNumber = true
+                )
+            }
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        )
+        {
+            Box(
+                modifier = Modifier.weight(1f)
+            )
+            {
+                VehicleTextField(
+                    value = mileage,
+                    onValueChange = { mileage = it },
+                    label = "Mileage (km)",
+                    isNumber = true
+                )
+            }
+
+            Box(
+                modifier = Modifier.weight(1f)
+            )
+            {
+                VehicleTextField(
+                    value = consumption,
+                    onValueChange = { consumption = it },
+                    label = "Consumption (l/100km)",
+                    isNumber = true
+                )
+            }
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        )
+        {
+            Box(
+                modifier = Modifier.weight(1f)
+            )
+            {
+                VehicleTextField(
+                    value = transmission,
+                    onValueChange = { transmission = it },
+                    label = "Transmission (e.g. Automatic)"
+                )
+            }
+
+            Box(
+                modifier = Modifier.weight(1f)
+            )
+            {
+                VehicleTextField(
+                    value = drivetrain,
+                    onValueChange = { drivetrain = it },
+                    label = "Drivetrain (e.g. AWD)"
+                )
+            }
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        )
+        {
+            Box(
+                modifier = Modifier.weight(1f)
+            )
+            {
+                VehicleTextField(
+                    value = torque,
+                    onValueChange = { torque = it },
+                    label = "Torque (Nm)",
+                    isNumber = true
+                )
+            }
+
+            Box(
+                modifier = Modifier.weight(1f)
+            )
+            {
+                VehicleTextField(
+                    value = wheelSize,
+                    onValueChange = { wheelSize = it },
+                    label = "Wheel Size (inches)",
+                    isNumber = true
+                )
+            }
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        )
+        {
+            Box(
+                modifier = Modifier.weight(1f)
+            )
+            {
+                VehicleTextField(
+                    value = doors,
+                    onValueChange = { doors = it },
+                    label = "Doors",
+                    isNumber = true
+                )
+            }
+
+            Box(
+                modifier = Modifier.weight(1f)
+            )
+            {
+                VehicleTextField(
+                    value = passengers,
+                    onValueChange = { passengers = it },
+                    label = "Passengers Capacity",
+                    isNumber = true
+                )
+            }
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        )
+        {
+            Box(
+                modifier = Modifier.weight(1f)
+            )
+            {
+                VehicleTextField(
+                    value = exteriorColor,
+                    onValueChange = { exteriorColor = it },
+                    label = "Exterior Color",
+                    isNumber = true
+                )
+            }
+
+            Box(
+                modifier = Modifier.weight(1f)
+            )
+            {
+                VehicleTextField(
+                    value = interiorColor,
+                    onValueChange = { interiorColor = it },
+                    label = "Interior Color",
+                    isNumber = true
+                )
+            }
+        }
+
         VehicleTextField(
-            value = year,
-            onValueChange = { year = it },
-            label = "Year",
+            value = location,
+            onValueChange = { location = it },
+            label = "Location / City",
             isNumber = true
         )
+
         VehicleTextField(
-            value = price,
-            onValueChange = { price = it },
-            label = "Price (€)",
+            value = videoUrl,
+            onValueChange = { videoUrl = it },
+            label = "YouTube Video Link Review",
             isNumber = true
         )
+
+        // Large description Box field
+        OutlinedTextField(
+            value = description,
+            onValueChange = { description = it },
+            label = { Text("Detailed Vehicle Description") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(120.dp),
+            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+        )
+
+        // Checkbox for Right Hand Drive
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = isRightHandDrive,
+                onCheckedChange = { isRightHandDrive = it }
+            )
+            Text(
+                "Right Hand Drive (RHD)",
+                color = Color.White
+            )
+        }
+
+
+        // Fuel Type Dropdown
+        Column(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                "Fuel Type",
+                color = Color.White
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF1E1E1E), RoundedCornerShape(4.dp))
+                    .clickable { showFuelMenu = true }
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = fuelType,
+                        color = Color.White
+                    )
+                    Icon(
+                        Icons.Default.ArrowDropDown,
+                        contentDescription = null,
+                        tint = Color.Gray
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showFuelMenu,
+                    onDismissRequest = { showFuelMenu = false },
+                    modifier = Modifier
+                        .fillMaxWidth(0.8f)
+                ) {
+                    fuelOptions.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option) },
+                            onClick = {
+                                fuelType = option
+                                showFuelMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+
+        // Seller Type Dropdown Menu
+        Column(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                "Seller Type",
+                color = Color.White
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF1E1E1E),
+                        RoundedCornerShape(4.dp))
+                    .clickable { showSellerMenu = true }
+                    .padding(16.dp)
+            )
+            {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = sellerType.name,
+                        color = Color.White
+                    )
+                    Icon(
+                        Icons.Default.ArrowDropDown,
+                        contentDescription = null,
+                        tint = Color.Gray
+                    )
+                }
+                DropdownMenu(
+                    expanded = showSellerMenu,
+                    onDismissRequest = { showSellerMenu = false },
+                    modifier = Modifier
+                        .fillMaxWidth(0.8f)
+                ) {
+                    SellerType.entries.filter { it != SellerType.UNKNOWN }.forEach { type ->
+                        DropdownMenuItem(
+                            text = { Text(type.name) },
+                            onClick = { sellerType = type; showSellerMenu = false }
+                        )
+                    }
+                }
+            }
+
+        }
+
 
 
         // Category selection
@@ -1298,21 +2236,45 @@ fun AddVehicleScreen(
             }
         }
 
-        // Submit action
+        // Submit Action Button
         Button(
             onClick = {
-                // Copy the bitmap to local variable to prevent the value from changing during composition (Thread Safety)
-                val bitmap = capturedBitmap
-                // Ensure bitmap exists before attempting to create CarEntry object
-                if (bitmap != null) {
+                // Copy the image URI to local variable to prevent the value from changing during composition (Thread Safety)
+                val imageUri = selectedImageUri
+                // Ensure the image URI exists before attempting to create CarEntry object
+                if (imageUri != null) {
                     // Construct the data object using input values and default properties from CarEntry
                     val newVehicle = CarEntry(
+                        id = 0,
                         brand = brand,
                         model = modelName,
                         year = year.toIntOrNull() ?: 2024,
                         price = price.toDoubleOrNull() ?: 0.0,
+                        engine = engine.toIntOrNull() ?: 0,
+                        horsepower = horsepower.toIntOrNull() ?: 0,
+                        mileage = mileage.toIntOrNull() ?: 0,
+                        fuelType = fuelType,
                         category = selectedCategory,
-                        mainImage = bitmap // Now safely passed as non-null value
+
+                        // Converts the local file/gallery URI to String and passes it inside the list
+                        imageUrls = listOf(imageUri.toString()),
+
+                        description = description,
+                        priceNegotiable = priceNegotiable,
+                        drivetrain = drivetrain,
+                        transmission = transmission,
+                        torque = torque.toIntOrNull() ?: 0,
+                        consumption = consumption.toDoubleOrNull() ?: 0.0,
+                        interiorColor = interiorColor,
+                        exteriorColor = exteriorColor,
+                        wheelSize = wheelSize.toIntOrNull() ?: 0,
+                        doors = doors.toIntOrNull() ?: 0,
+                        passengers = passengers.toIntOrNull() ?: 0,
+                        isRightHandDrive = isRightHandDrive,
+                        location = location,
+                        sellerType = sellerType,
+                        rating = 5.0f,
+                        videoUrl = videoUrl
                     )
                     viewModel.addCar(newVehicle, onTokenExpired)
                     onSaved() // Callback to navigate back or reset UI

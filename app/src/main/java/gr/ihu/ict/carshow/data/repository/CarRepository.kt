@@ -20,7 +20,20 @@ interface CarRepository {
     fun getReviewsStream(vehicleId: Int): Flow<List<VehicleReview>>
 
     // Synchronizes the local database with the remote API data
-    suspend fun refreshCars()
+    suspend fun refreshCars(
+        category: String? = null,
+        minPrice: Double? = null,
+        maxPrice: Double? = null,
+        minEngine: Int? = null,
+        maxEngine: Int? = null,
+        minMileage: Int? = null,
+        maxMileage: Int? = null,
+        minHP: Int? = null,
+        maxHP: Int? = null,
+        minYear: Int? = null,
+        maxYear: Int? = null,
+        ordering: String? = null
+    )
 
     // Retrieves a specific car ID checking the local storage first
     suspend fun getCarById(id: Int): CarEntry?

@@ -12,6 +12,7 @@ import gr.ihu.ict.carshow.data.model.SellerType
 import gr.ihu.ict.carshow.data.model.VehicleReview
 import gr.ihu.ict.carshow.data.rest.CarEntryApiService
 import gr.ihu.ict.carshow.data.rest.CarEntryDto
+import gr.ihu.ict.carshow.data.rest.CarImageDto
 import gr.ihu.ict.carshow.data.rest.TokenExpiredException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -46,11 +47,49 @@ class RestCarRepository(
     }
 
 
-    // Synchronizes local database (Room) with the server by downloading all vehicles and saving them to Room
-    override suspend fun refreshCars() {
+    // Fetches vehicles from the remote API using optional filters/ordering,
+    // Synchronizes the local Room database, and triggers reactive UI updates
+    override suspend fun refreshCars(
+        category: String?,
+        minPrice: Double?,
+        maxPrice: Double?,
+        minEngine: Int?,
+        maxEngine: Int?,
+        minMileage: Int?,
+        maxMileage: Int?,
+        minHP: Int?,
+        maxHP: Int?,
+        minYear: Int?,
+        maxYear: Int?,
+        ordering: String?
+    ) {
         try {
-            val remote = apiService.getAllCarEntries()
+            // Download data from Django endpoint with active query filters
+            val remote = apiService.getAllCarEntries(
+                category = category,
+                minPrice = minPrice,
+                maxPrice = maxPrice,
+                minEngine = minEngine,
+                maxEngine = maxEngine,
+                minMileage = minMileage,
+                maxMileage = maxMileage,
+                minHP = minHP,
+                maxHP = maxHP,
+                minYear = minYear,
+                maxYear = maxYear,
+                ordering = ordering
+            )
 
+            // Clear local cache if filters are active to prevent,
+            // non-matching cached cars from showing up alongside filtered results.
+            val hasActiveFilters = category != null || minPrice != null || maxPrice != null || minEngine != null || maxEngine != null || ordering != null
+
+            if (hasActiveFilters) {
+                dao.deleteAll()
+            }
+
+            // Save the fresh network results into the local Room database.
+            // This safely updates local storage, automatically updating the UI Flow.
             dao.insertAllCars(remote.map { dtoToEntity(it) })
         } catch (e: HttpException) {
             if (e.code() == 401) {
@@ -85,15 +124,12 @@ class RestCarRepository(
     }
 
 
-    // Converts the vehicle's bitmap image into a compressed byte array
-    // Packages the byte array to DTO and sends it to the server before updating Room
+    // Direct uploads the vehicle data (including its image URLs) to the remote server
+    // bypassing any heavy bitmap or byte array processing
     override suspend fun addCarEntry(carEntry: CarEntry) {
-        val stream = ByteArrayOutputStream()
-        carEntry.mainImage.compress(Bitmap.CompressFormat.PNG, 90, stream)
-        val imageBytes = stream.toByteArray()
 
-
-        val dto = carEntryToDto(carEntry, imageBytes)
+        // Maps the UI model directly to network DTO without heavy bitmap processing
+        val dto = carEntryToDto(carEntry)
 
         try {
             val saved = apiService.addCarEntry(dto)
@@ -109,11 +145,18 @@ class RestCarRepository(
     }
 
 
-    // Deletes a vehicle entry from both the remote server and the local Room database
+
+    // Deletes a vehicle entry and its reviews from both the remote server and the local Room database
     override suspend fun deleteCar(carEntry: CarEntry) {
         try {
+            // Delete the vehicle from the remote server
             apiService.deleteCarEntry(carEntry.id)
+
+            // If it succeeds delete it also from the local Room database
             dao.deleteCarById(carEntry.id)
+
+            // Clean up and delete all the local reviews connected to this vehicle
+            dao.deleteReviewsForVehicle(carEntry.id)
         } catch (e: HttpException) {
             if (e.code() == 401) {
                 throw TokenExpiredException()
@@ -121,6 +164,8 @@ class RestCarRepository(
             throw e
         }
     }
+
+
 
     // Observes the local database reviews table
     // Provides them as a Flow (live stream) of reviews for the UI
@@ -193,8 +238,9 @@ class RestCarRepository(
     }
 
 
-    // Mapper: Converts a network DTO object into a local database entity
-    // Provides default safe-fallbacks for null values received from backend
+    // Maps API response (DTO) to Room database entity, extracting raw URLs
+    // Room will automatically save this List<String> as a single text row via TypeConverter (Converters.kt)
+    // Example: [CarImageDto(imageUrl="url1")] to ["url1"]
     private fun dtoToEntity(dto: CarEntryDto): CarEntity {
 
         return CarEntity(
@@ -205,14 +251,15 @@ class RestCarRepository(
             year = dto.year ?: 0,
             price = dto.price ?: 0.0,
             priceNegotiable = dto.priceNegotiable ?: false,
-            mainImageData = dto.mainImageData ?: ByteArray(0),
+            imageUrls = dto.images.map { it.imageUrl },
             description = dto.description ?: "",
-            engine = dto.engine ?: "",
+            engine = dto.engine ?: 0,
+            fuelType = dto.fuelType ?: "",
             horsepower = dto.horsepower ?: 0,
             drivetrain = dto.drivetrain ?: "",
             transmission = dto.transmission ?: "",
             torque = dto.torque ?: 0,
-            consumption = dto.consumption?.toDoubleOrNull() ?: 0.0,
+            consumption = dto.consumption ?: 0.0,
             mileage = dto.mileage ?: 0,
             interiorColor = dto.interiorColor ?: "",
             exteriorColor = dto.exteriorColor ?: "",
@@ -222,7 +269,7 @@ class RestCarRepository(
             isRightHandDrive = dto.isRightHandDrive ?: false,
             location = dto.location ?: "",
             sellerType = dto.sellerType ?: SellerType.UNKNOWN.name,
-            rating = dto.rating?.toDouble() ?: 0.0,
+            rating = dto.rating ?: 5.0f,
             videoUrl = dto.videoUrl ?: ""
         )
     }
@@ -230,15 +277,8 @@ class RestCarRepository(
 
 
     // Mapper: Converts a Local Database Entity into a UI-ready CarEntry model
-    // Decodes binary byte arrays back into renderable Android Bitmaps
+    // Relies on Room TypeConverters to seamlessly pass down the image URL array
     private fun entityToCarEntry(entity: CarEntity): CarEntry {
-        val bitmap = BitmapFactory.decodeByteArray(
-            entity.mainImageData,
-            0,
-            entity.mainImageData.size
-        ) ?: Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888) // Safe fallback blank pixel bitmap
-
-
         return CarEntry(
             id = entity.id,
             brand = entity.brand,
@@ -247,14 +287,16 @@ class RestCarRepository(
             year = entity.year,
             price = entity.price,
             priceNegotiable = entity.priceNegotiable,
-            mainImage = bitmap,
+            // Passes the dynamic list of strings down to the presentation layer
+            imageUrls = entity.imageUrls,
             description = entity.description,
             engine = entity.engine,
+            fuelType = entity.fuelType,
             horsepower = entity.horsepower,
             drivetrain = entity.drivetrain,
             transmission = entity.transmission,
             torque = entity.torque,
-            consumption = entity.consumption.toString(),
+            consumption = entity.consumption,
             mileage = entity.mileage,
             interiorColor = entity.interiorColor,
             exteriorColor = entity.exteriorColor,
@@ -264,15 +306,17 @@ class RestCarRepository(
             isRightHandDrive = entity.isRightHandDrive,
             location = entity.location,
             sellerType = SellerType.valueOf(entity.sellerType),
-            rating = entity.rating.toFloat(),
+            rating = entity.rating,
             videoUrl = entity.videoUrl
         )
     }
 
 
 
-    // Mapper: Converts a UI-ready model into a Network Payload DTO
-    private fun carEntryToDto(car: CarEntry, imageBytes: ByteArray): CarEntryDto {
+    // Maps Domain Model back to Network DTO for POST/PUT requests
+    // Wraps the simple string URLs back into CarImageDto structured nested objects expected by Django
+    // Example: ["url1"] to [CarImageDto(imageUrl="url1")]
+    private fun carEntryToDto(car: CarEntry): CarEntryDto {
         return CarEntryDto(
             id = car.id,
             brand = car.brand,
@@ -281,9 +325,12 @@ class RestCarRepository(
             year = car.year,
             price = car.price,
             priceNegotiable = car.priceNegotiable,
-            mainImageData = imageBytes,
+            // Rebuilds the nested object array for the network payload
+            // Example: ["url1"] becomes [CarImageDto("url1")]
+            images = car.imageUrls.map { CarImageDto(imageUrl = it) },
             description = car.description,
             engine = car.engine,
+            fuelType = car.fuelType,
             horsepower = car.horsepower,
             drivetrain = car.drivetrain,
             transmission = car.transmission,

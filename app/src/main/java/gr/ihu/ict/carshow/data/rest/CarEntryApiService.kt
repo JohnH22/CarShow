@@ -13,25 +13,39 @@ import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
+import retrofit2.http.Query
 
 interface CarEntryApiService {
 
-    @GET("car_entry")
-    suspend fun getAllCarEntries(): List<CarEntryDto>
+    @GET("car_entry/")
+    suspend fun getAllCarEntries(
+        @Query("category") category: String? = null,
+        @Query("price__gte") minPrice: Double? = null,
+        @Query("price__lte") maxPrice: Double? = null,
+        @Query("engine__gte") minEngine: Int? = null,
+        @Query("engine__lte") maxEngine: Int? = null,
+        @Query("mileage__gte") minMileage: Int? =null,
+        @Query("mileage__lte") maxMileage: Int? =null,
+        @Query("horsepower__gte") minHP: Int? =null,
+        @Query("horsepower__lte") maxHP: Int? =null,
+        @Query("year__gte") minYear: Int? =null,
+        @Query("year__lte") maxYear: Int? =null,
+        @Query("ordering") ordering: String? = null
+    ): List<CarEntryDto>
 
-    @POST("car_entry")
+    @POST("car_entry/")
     suspend fun addCarEntry(@Body carEntryDto: CarEntryDto): CarEntryDto
 
-    @GET("car_entry/{id}")
+    @GET("car_entry/{id}/")
     suspend fun getById(@Path("id") id: Int): CarEntryDto
 
-    @GET("car_entry/byCategory/{category}")
+    @GET("car_entry/byCategory/{category}/")
     suspend fun getByCategory(@Path("category") category: String): List<CarEntryDto>
 
-    @DELETE("car_entry/{id}")
+    @DELETE("car_entry/{id}/")
     suspend fun deleteCarEntry(@Path("id") id: Int)
 
-    @POST("/login")
+    @POST("login/")
     suspend fun login(@Body request: LoginRequest): LoginResponse
 
     @POST("api/register/")

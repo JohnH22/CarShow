@@ -1,5 +1,12 @@
 package gr.ihu.ict.carshow.data.rest
 
+
+
+data class CarImageDto(
+    val imageUrl: String
+)
+
+
 data class CarEntryDto(
     val id: Int,
     val brand: String? = null,
@@ -8,14 +15,15 @@ data class CarEntryDto(
     val year: Int? = null,
     val price: Double? = null,
     val priceNegotiable: Boolean? = null,
-    val mainImageData: ByteArray? = null,
+    val images: List<CarImageDto> = emptyList(),
     val description: String? = null,
-    val engine: String? = null,
+    val engine: Int? = null,
+    val fuelType: String? = null,
     val horsepower: Int? = null,
     val drivetrain: String? = null,
     val transmission: String? = null,
     val torque: Int? = null,
-    val consumption: String? = null,
+    val consumption: Double? = null,
     val mileage: Int? = null,
     val interiorColor: String? = null,
     val exteriorColor: String? = null,

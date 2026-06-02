@@ -9,7 +9,7 @@ data class VehicleReview(
     // The username of the user who wrote the review
     val username: String,
     // The star rating the user given to the vehicle
-    val rating: Double,
+    val rating: Float,
     // The actual text message from the user (Review text)
     val comment: String,
     // The time and date showing when the review was created
