@@ -3,6 +3,7 @@ package gr.ihu.ict.carshow.data.local
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverters
+import com.google.gson.annotations.SerializedName
 
 
 // Defines the Room database table structure for storing vehicle details locally
@@ -41,7 +42,10 @@ data class CarEntity(
     val location: String,
     val sellerType: String,
     val rating: Float, // Local rating given by the user
+
+    @SerializedName("average_rating")
     val averageRating: Double, // Global average rating from all users
+
     val videoUrl: String? = null
 
 )

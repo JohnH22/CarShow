@@ -21,6 +21,7 @@ interface CarEntryDao {
             CASE WHEN :orderBy = '-year' THEN year END DESC,
             CASE WHEN :orderBy = 'engine' THEN engine END ASC,
             CASE WHEN :orderBy = '-engine' THEN engine END DESC,
+            CASE WHEN :orderBy = '-average_rating' THEN averageRating END DESC,
             id DESC
     """)
     fun getFilteredCarsStream(orderBy: String?): Flow<List<CarEntity>>
