@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
@@ -88,14 +90,19 @@ fun ReviewItem(
     username: String,
     rating: Float,
     comment: String,
-    date: String
+    date: String,
+    onDelete: (() -> Unit)? = null
 ) {
+
+    // Extracts only the YYYY-MM-DD date part from the ISO timestamp by removing the 'T' separator and time from Django Server
+    val cleanDate = if (date.contains("T")) date.substringBefore("T") else date
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp),
         // Dark theme color
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF252525)),
         shape = MaterialTheme.shapes.medium
     ) {
         Column(
@@ -110,17 +117,39 @@ fun ReviewItem(
             ) {
                 // Display the name of the user who wrote the review
                 Text(
-                    text = username,
+                    text = username.ifBlank { "Anonymous" },
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
-                    fontSize = 16.sp
+                    fontSize = 16.sp,
+                    modifier = Modifier.weight(1f)
                 )
-                // Display the date the review was posted
-                Text(
-                    text = date,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray
-                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(start = 8.dp)
+                ) {
+                    // Display the date the review was posted
+                    Text(
+                        text = cleanDate,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+
+
+                    if (onDelete != null) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = "Delete Review",
+                            tint = Color(0xFFE53935),
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clickable{ onDelete() }
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))

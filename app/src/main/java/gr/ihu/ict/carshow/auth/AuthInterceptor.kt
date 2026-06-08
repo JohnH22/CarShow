@@ -10,16 +10,20 @@ import okhttp3.Response
 class AuthInterceptor(private val context: Context) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
 
+        val appContext = context.applicationContext
+
         // Retrieve the current Access Token from storage
-        val token = TokenStore.getAccess(context)
+        val token = TokenStore.getAccess(appContext)
 
         // If token exists clone the request and add Authorization header
         // Using "Bearer" required by OAuth2/JWT implementation
         val request = if (token != null) {
+            android.util.Log.d("AUTH_DEBUG", "Sending Token: Bearer $token")
             chain.request().newBuilder()
-                .addHeader("Authorization", "Bearer $token")
+                .header("Authorization", "Bearer $token") // header instead of addHeader to override any old tokens
                 .build()
         } else {
+            android.util.Log.d("AUTH_DEBUG", "No token found in TokenStore!")
             // If no token is found (first time login) , proceed with original request
             chain.request()
         }
@@ -30,15 +34,19 @@ class AuthInterceptor(private val context: Context) : Interceptor {
         // Handling 401 unauthorized scenario
         // If code reaches here means TokenAuthenticator failed to refresh the token or session invalid
         if (response.code == 401) {
-            // Clear all stored tokens to clean the app from corrupted/expired data
-            TokenStore.clear(context)
 
-            // Closing response body to release system resources and prevent memory leaks
-            response.close()
+            // Check if the request has already been retried once
+            val isPermanent401 = response.priorResponse != null
+            val hadNoToken = response.request.header("Authorization") == null
 
-            // Throw custom Exception to notify ViewModel that user needs to re-authenticate
-            throw TokenExpiredException()
+            // If the failure is permanent after a retry attempt, clear the session and throw exception
+            if (isPermanent401 && hadNoToken) {
+                TokenStore.clear(appContext)
+                response.close()
+                throw TokenExpiredException()
+            }
         }
+
 
         // Return the successful response
         return response

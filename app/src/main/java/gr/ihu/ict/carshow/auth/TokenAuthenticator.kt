@@ -1,6 +1,7 @@
 package gr.ihu.ict.carshow.auth
 
 import android.content.Context
+import android.content.Intent
 import com.google.gson.Gson
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
@@ -35,6 +36,13 @@ class TokenAuthenticator(private val context: Context) : okhttp3.Authenticator {
         } else {
             // Refresh failed. Clear data and force logout
             TokenStore.clear(context)
+
+            // Broadcast an intent to notify the application that the token session has expired
+            val intent = Intent("gr.ihu.ict.carshow.TOKEN_EXPIRED").apply {
+                setPackage(context.packageName)
+            }
+            context.sendBroadcast(intent)
+
             null
         }
     }
@@ -55,7 +63,7 @@ class TokenAuthenticator(private val context: Context) : okhttp3.Authenticator {
 
         // Url string has the actual backend configuration endpoint of server
         val request = Request.Builder()
-            .url("")
+            .url("http://192.168.1.162:8000/api/token/refresh/")
             .post(body)
             .build()
 

@@ -17,8 +17,12 @@ import gr.ihu.ict.carshow.auth.TokenAuthenticator
 // Singleton object responsible for configuring and providing the Retrofit API service
 object RetrofitInstance {
 
-    // Server's IP goes here
-    private const val BASE_URL = ""
+    // The backend deployment server base URL address
+    private const val BASE_URL = "http://192.168.1.162:8000/"
+
+    // Volatile reference to ensure immediate visibility of the API service instance across threads
+    @Volatile
+    private var apiService: CarEntryApiService? = null
 
     // Custom Gson instance configured to auto decode Base64 strings into
     // ByteArrays during JSON deserialization
@@ -37,20 +41,30 @@ object RetrofitInstance {
 
     // Build and configure API service
     fun buildApi(context: Context): CarEntryApiService {
-        // Configure HTTP client with Authentication logic
-        val client = OkHttpClient.Builder()
-            // The Interceptor adds the "Authorization: Bearer <token>" header to every request
-            .addInterceptor (AuthInterceptor(context.applicationContext))
-            // Authenticator handles auto token refresh when a 401 error occurs
-            .authenticator(TokenAuthenticator(context.applicationContext))
-            .build()
+        return apiService ?: synchronized(this) {
+            apiService ?: run {
 
-        // Initializing Retrofit with the custom OkHttp client and Gson converter
-        return Retrofit.Builder()
-            .baseUrl(BASE_URL)
-            .client(client)
-            .addConverterFactory(GsonConverterFactory.create(gson))
-            .build()
-            .create(CarEntryApiService::class.java)
+                val appContext = context.applicationContext
+
+                // Configure HTTP client with Authentication logic
+                val client = OkHttpClient.Builder()
+                    // The Interceptor adds the "Authorization: Bearer <token>" header to every request
+                    .addInterceptor (AuthInterceptor(appContext))
+                    // Authenticator handles auto token refresh when a 401 error occurs
+                    .authenticator(TokenAuthenticator(appContext))
+                    .build()
+
+                // Initializing Retrofit with the custom OkHttp client and Gson converter
+                val retrofit = Retrofit.Builder()
+                    .baseUrl(BASE_URL)
+                    .client(client)
+                    .addConverterFactory(GsonConverterFactory.create(gson))
+                    .build()
+
+                val service = retrofit.create(CarEntryApiService::class.java)
+                apiService = service
+                service
+            }
+        }
     }
 }

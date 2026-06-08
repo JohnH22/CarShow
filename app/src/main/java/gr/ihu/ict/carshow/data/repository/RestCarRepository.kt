@@ -2,6 +2,7 @@ package gr.ihu.ict.carshow.data.repository
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import gr.ihu.ict.carshow.auth.TokenStore
 import gr.ihu.ict.carshow.data.local.CarEntity
 import gr.ihu.ict.carshow.data.local.CarEntryDao
 import gr.ihu.ict.carshow.data.local.ReviewEntity
@@ -14,6 +15,7 @@ import gr.ihu.ict.carshow.data.rest.CarEntryApiService
 import gr.ihu.ict.carshow.data.rest.CarEntryDto
 import gr.ihu.ict.carshow.data.rest.CarImageDto
 import gr.ihu.ict.carshow.data.rest.TokenExpiredException
+import gr.ihu.ict.carshow.ui.viewmodel.CarFilterState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -29,64 +31,49 @@ class RestCarRepository(
 
 
     // Fetches all cars from local Room DB as a Flow and maps database entities to UI-ready CarEntry models
-    override fun getCarsStream(): Flow<List<CarEntry>> {
+    override fun getCarsStream(category: String?, orderBy: String?): Flow<List<CarEntry>> {
 
-        return dao.getAllCars().map { entities ->
+        return dao.getFilteredCarsStream(orderBy = orderBy).map { entities ->
             entities.map { entityToCarEntry(it) }
         }
     }
 
 
-
-    // Streams local car entries filtered by category, converting them to UI-ready CarEntry models
-    override fun getCarsByCategoryStream(category: CarCategory): Flow<List<CarEntry>> {
-
-        return dao.getCarsByCategory(category.name).map { entities ->
-            entities.map { entityToCarEntry(it) }
-        }
-    }
 
 
     // Fetches vehicles from the remote API using optional filters/ordering,
     // Synchronizes the local Room database, and triggers reactive UI updates
-    override suspend fun refreshCars(
-        category: String?,
-        minPrice: Double?,
-        maxPrice: Double?,
-        minEngine: Int?,
-        maxEngine: Int?,
-        minMileage: Int?,
-        maxMileage: Int?,
-        minHP: Int?,
-        maxHP: Int?,
-        minYear: Int?,
-        maxYear: Int?,
-        ordering: String?
-    ) {
+    override suspend fun refreshCars(filters: CarFilterState) {
         try {
             // Download data from Django endpoint with active query filters
             val remote = apiService.getAllCarEntries(
-                category = category,
-                minPrice = minPrice,
-                maxPrice = maxPrice,
-                minEngine = minEngine,
-                maxEngine = maxEngine,
-                minMileage = minMileage,
-                maxMileage = maxMileage,
-                minHP = minHP,
-                maxHP = maxHP,
-                minYear = minYear,
-                maxYear = maxYear,
-                ordering = ordering
+                category = filters.category,
+                brand = filters.brand,
+                model = filters.model,
+                location = filters.location,
+                fuelType = filters.fuelType,
+                drivetrain = filters.drivetrain,
+                transmission = filters.transmission,
+                interiorColor = filters.interiorColor,
+                exteriorColor = filters.exteriorColor,
+                sellerType = filters.sellerType,
+                minPrice = filters.minPrice,
+                maxPrice = filters.maxPrice,
+                minEngine = filters.minEngine,
+                maxEngine = filters.maxEngine,
+                minMileage = filters.minMileage,
+                maxMileage = filters.maxMileage,
+                minHP = filters.minHP,
+                maxHP = filters.maxHP,
+                minYear = filters.minYear,
+                maxYear = filters.maxYear,
+                minConsumption = filters.minConsumption,
+                maxConsumption = filters.maxConsumption,
+                ordering = filters.ordering
             )
 
-            // Clear local cache if filters are active to prevent,
-            // non-matching cached cars from showing up alongside filtered results.
-            val hasActiveFilters = category != null || minPrice != null || maxPrice != null || minEngine != null || maxEngine != null || ordering != null
+            dao.deleteAll()
 
-            if (hasActiveFilters) {
-                dao.deleteAll()
-            }
 
             // Save the fresh network results into the local Room database.
             // This safely updates local storage, automatically updating the UI Flow.
@@ -131,15 +118,22 @@ class RestCarRepository(
         // Maps the UI model directly to network DTO without heavy bitmap processing
         val dto = carEntryToDto(carEntry)
 
+        android.util.Log.d("DEBUG_SEND", "Sending Images: ${dto.images}")
+
         try {
             val saved = apiService.addCarEntry(dto)
 
             dao.insertCar(dtoToEntity(saved)) // Saves newly added car entry into local database
 
         } catch (e: HttpException) {
+            val errorBody = e.response()?.errorBody()?.string()
+            android.util.Log.e("DEBUG_ERROR", "Server returned error: ${e.code()} - $errorBody")
             if (e.code() == 401) {
                 throw TokenExpiredException()
             }
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("DEBUG_ERROR", "General Exception: ${e.message}")
             throw e
         }
     }
@@ -173,6 +167,7 @@ class RestCarRepository(
         return dao.getReviewsForVehicle(vehicleId).map { entities ->
             entities.map { entity ->
                 VehicleReview(
+                    id = entity.id,
                     username = entity.username,
                     rating = entity.rating,
                     comment = entity.comment,
@@ -190,14 +185,19 @@ class RestCarRepository(
         try {
             remoteReviews = apiService.getVehicleReviews(id)
 
+            remoteReviews.forEach {
+                android.util.Log.d("DEBUG_MAPPING", "ID from Server: ${it.id}")
+            }
+
             // Saves the reviews got from the remote API into local Room database
             dao.insertReviews(remoteReviews.map { dto ->
                 ReviewEntity(
+                    id = dto.id,
                     vehicleId = id,
-                    username = dto.username,
+                    username = dto.username ?: "Anonymous",
                     rating = dto.rating,
-                    comment = dto.comment,
-                    createdAt = dto.createdAt
+                    comment = dto.comment ?: "",
+                    createdAt = dto.createdAt ?: ""
                 )
             })
         } catch (e: HttpException) {
@@ -214,25 +214,69 @@ class RestCarRepository(
 
     // Posts a new review via network API , then saves a copy to the local Room database
     // Ensures immediate feedback thanks to reactive flow
-    override suspend fun postReview(id: Int, request: ReviewRequest): VehicleReview {
+    override suspend fun postReview(request: ReviewRequest): VehicleReview {
         try {
-            val newReview = apiService.postReview(id, request)
 
-            // Cache the newly created review item locally
-            dao.insertSingleReview(
-                ReviewEntity(
-                    vehicleId = id,
-                    username = newReview.username,
-                    rating = newReview.rating,
-                    comment = newReview.comment,
-                    createdAt = newReview.createdAt
+            android.util.Log.d("DEBUG_REPO", "Sending review to API...")
+            val response = apiService.postReview(request)
+
+            if (response.isSuccessful) {
+                val newReview = response.body() ?: throw Exception("Server returned empty body for review")
+                android.util.Log.d("DEBUG_REPO", "API Response Successful! Body: $newReview")
+
+
+                // Cache the newly created review item locally
+                dao.insertSingleReview(
+                    ReviewEntity(
+                        id = newReview.id,
+                        vehicleId = request.vehicle,
+                        username = newReview.username ?: "Anonymous",
+                        rating = newReview.rating,
+                        comment = newReview.comment ?: "",
+                        createdAt = newReview.createdAt ?: java.util.Date().toString()
+                    )
                 )
-            )
-            return newReview
+                android.util.Log.d("DEBUG_REPO", "Review inserted into Room successfully!")
+                return newReview
+            } else {
+                android.util.Log.e("DEBUG_REPO", "Server returned error code: ${response.code()}")
+                throw Exception("Failed to post review. Server code: ${response.code()}")
+            }
         } catch (e: HttpException) {
+            android.util.Log.e("DEBUG_REPO", "HttpException caught: ${e.code()}")
             if (e.code() == 401) {
                 throw TokenExpiredException()
             }
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("DEBUG_REPO", "General Exception caught: ${e.message}", e)
+            throw e
+        }
+    }
+
+
+    override suspend fun deleteReview(reviewId: Int) {
+        try {
+            android.util.Log.d("DEBUG_DELETE_ID", "Attempting to delete ID: $reviewId")
+
+            // Send a request to the remote server to delete the specific review
+            val response = apiService.deleteReview(reviewId)
+
+            if (response.isSuccessful) {
+                // If the remote deletion succeeds, remove the review from the local Room database
+                dao.deleteReviewById(reviewId)
+            } else {
+                android.util.Log.e("API_DELETE", "Error: ${response.code()} - ${response.errorBody()?.string()}")
+                throw Exception("Failed to delete review. Server code: ${response.code()}")
+            }
+        } catch (e: HttpException) {
+            // Intercept HTTP 401 Unauthorized errors to trigger session expiration
+            if (e.code() == 401) {
+                throw TokenExpiredException()
+            }
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("API_DELETE", "Exception: ${e.message}")
             throw e
         }
     }
@@ -243,6 +287,9 @@ class RestCarRepository(
     // Example: [CarImageDto(imageUrl="url1")] to ["url1"]
     private fun dtoToEntity(dto: CarEntryDto): CarEntity {
 
+        val extractedUrls = dto.images?.map { it.imageUrl } ?: emptyList()
+        android.util.Log.d("DEBUG_MAPPER", "Car: ${dto.model} | Extracted URLs: $extractedUrls")
+
         return CarEntity(
             id = dto.id,
             brand = dto.brand ?: "",
@@ -251,7 +298,7 @@ class RestCarRepository(
             year = dto.year ?: 0,
             price = dto.price ?: 0.0,
             priceNegotiable = dto.priceNegotiable ?: false,
-            imageUrls = dto.images.map { it.imageUrl },
+            imageUrls = dto.images?.map { it.imageUrl } ?: emptyList(),
             description = dto.description ?: "",
             engine = dto.engine ?: 0,
             fuelType = dto.fuelType ?: "",
@@ -270,6 +317,7 @@ class RestCarRepository(
             location = dto.location ?: "",
             sellerType = dto.sellerType ?: SellerType.UNKNOWN.name,
             rating = dto.rating ?: 5.0f,
+            averageRating = dto.averageRating ?: 0.0,
             videoUrl = dto.videoUrl ?: ""
         )
     }
@@ -279,11 +327,18 @@ class RestCarRepository(
     // Mapper: Converts a Local Database Entity into a UI-ready CarEntry model
     // Relies on Room TypeConverters to seamlessly pass down the image URL array
     private fun entityToCarEntry(entity: CarEntity): CarEntry {
+
+        val categoryEnum = try {
+            CarCategory.valueOf(entity.category.uppercase())
+        } catch (e: Exception) {
+            CarCategory.UNKNOWN
+        }
+
         return CarEntry(
             id = entity.id,
             brand = entity.brand,
             model = entity.model,
-            category = CarCategory.valueOf(entity.category),
+            category = categoryEnum,
             year = entity.year,
             price = entity.price,
             priceNegotiable = entity.priceNegotiable,
@@ -307,6 +362,7 @@ class RestCarRepository(
             location = entity.location,
             sellerType = SellerType.valueOf(entity.sellerType),
             rating = entity.rating,
+            averageRating = entity.averageRating.toFloat(),
             videoUrl = entity.videoUrl
         )
     }
@@ -346,6 +402,7 @@ class RestCarRepository(
             location = car.location,
             sellerType = car.sellerType.name,
             rating = car.rating,
+            averageRating = car.averageRating.toDouble(),
             videoUrl = car.videoUrl
 
         )

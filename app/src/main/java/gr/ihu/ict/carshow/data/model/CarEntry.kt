@@ -2,6 +2,9 @@ package gr.ihu.ict.carshow.data.model
 
 import android.graphics.Bitmap
 
+
+
+// Represents the core domain data model for a vehicle entry used across the UI layers
 data class CarEntry(
     val id: Int =0,
     val brand: String,
@@ -29,5 +32,6 @@ data class CarEntry(
     val location: String = "Unknown",
     val sellerType: SellerType = SellerType.PRIVATE,
     val rating: Float = 5.0f,
+    val averageRating: Float = 5.0f,
     val videoUrl: String? = null
 )

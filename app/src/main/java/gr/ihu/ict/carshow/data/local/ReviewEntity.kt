@@ -7,9 +7,9 @@ import androidx.room.PrimaryKey
 // Represents a vehicle review inside the local Room database table
 @Entity(tableName = "vehicle_reviews")
 data class ReviewEntity(
-    // Unique ID for the local database row, auto generated
-    @PrimaryKey(autoGenerate = true)
-    val localId: Int = 0,
+    // Unique ID for the local database row
+    @PrimaryKey
+    val id: Int,
     // Links this review to a specific car entry (Foreign key logic)
     val vehicleId: Int,
     // The name of the user who wrote the review

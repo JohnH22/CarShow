@@ -25,7 +25,7 @@ class AuthViewModel(
 
 
     // Accessing application context
-    private val context: Context get() = getApplication<Application>()
+    private val context: Context get() = getApplication<Application>().applicationContext
 
     // Boolean to trigger navigation once login is successful
     var loginSuccess by mutableStateOf(false)
@@ -42,11 +42,18 @@ class AuthViewModel(
     // Success message to be displayed on the UI
     var successMessage by mutableStateOf<String?>(null)
 
+    // Tracks if the temporary greeting banner should display on successful entry
     var showWelcomeMessage by mutableStateOf(false)
         private set
 
+    // Stored authenticated user profile
     var username by mutableStateOf<String?>(null)
         private set
+
+    init {
+        // Check if the user is already logged in when the ViewModel is created
+        checkExistingSession()
+    }
 
 
     // Attempt to authenticate the user
@@ -59,25 +66,36 @@ class AuthViewModel(
                 // Performing network request
                 val response = api.login(LoginRequest(username, password))
 
-                // Save the tokens using TokenStore
-                TokenStore.saveTokens(context, response.access, response.refresh)
 
-                // this@AuthViewModel.username is the created private variable username at the start
-                // username is the one inside this function
-                this@AuthViewModel.username = username
+                if (response.isSuccessful) {
+                    val loginBody = response.body()
+                    if (loginBody != null){
 
-                // Shows Welcome Message on successful login
-                showWelcomeMessage = true
+                        // Save the tokens using TokenStore encrypted/shared preferences
+                        TokenStore.saveTokens(context, loginBody.access, loginBody.refresh)
 
-                // Notify UI that navigation can proceed
-                loginSuccess = true
-            } catch (e: HttpException) {
-                // Server responded with an error code (401, 403, 500, ....)
-                errorMessage = when (e.code()) {
-                    401 -> "Wrong Username or Password. Please check your log-in credentials."
-                    403 -> "Account is disabled or lacks permission."
-                    500 -> "Server error. Please try again later."
-                    else -> "An unexpected error occurred. (Error: ${e.code()})"
+                        TokenStore.saveUsername(context, username)
+
+                        // this@AuthViewModel.username is the created private variable username at the start
+                        // username is the one inside this function
+                        this@AuthViewModel.username = username
+
+                        // Shows Welcome Message on successful login
+                        showWelcomeMessage = true
+
+                        // Notify UI that navigation can proceed
+                        loginSuccess = true
+                    } else {
+                        errorMessage = "Invalid response from server."
+                    }
+                } else {
+                    // Server responded with an error code (401, 403, 500, ....)
+                    errorMessage = when (response.code()) {
+                        401 -> "Wrong Username or Password. Please check your log-in credentials."
+                        403 -> "Account is disabled or lacks permission."
+                        500 -> "Server error. Please try again later."
+                        else -> "An unexpected error occurred. (Error: ${response.code()})"
+                    }
                 }
             } catch (e: IOException) {
                 // Network or connection issues (no internet, timeout, ....)
@@ -113,23 +131,34 @@ class AuthViewModel(
                 // Call API to create the user account
                 val response = api.register(RegisterRequest(username, email, password))
 
-                // Personalized feedback message for successful account creation using the response with the user's username
-                successMessage = "Account successfully created for user: ${response.username}!"
+                if (response.isSuccessful) {
+                    val registerBody = response.body()
+                    if (registerBody != null) {
+                        // Personalized feedback message for successful account creation using the response with the user's username
+                        successMessage =
+                            "Account successfully created for user: ${registerBody.username}!"
 
-                // Adding delay so the user has time to read the message
-                delay(2000)
+                        TokenStore.saveUsername(context, username)
 
-                // Since registration was successful proceed to login
-                // So user doesn't have to type their credentials twice.
-                login(username, password)
+                        // Adding delay so the user has time to read the message
+                        delay(2000)
 
-            } catch (e: HttpException) {
-                // HTTP error handling(400 Bad Request if the user already exists)
-                errorMessage = when (e.code()) {
-                    400 -> "Username or Email already taken."
-                    else -> "Registration failed (Error: ${e.code()})."
+                        // Since registration was successful proceed to login
+                        // So user doesn't have to type their credentials twice.
+                        login(username, password)
+
+                    } else {
+                        errorMessage = "Registration succeeded, but server returned empty data."
+                    }
+                } else {
+                    // HTTP error handling(400 Bad Request if the user already exists)
+                    errorMessage = when (response.code()) {
+                        400 -> "Username or Email already taken."
+                        else -> "Registration failed (Error: ${response.code()})."
+                    }
                 }
-            } catch (e: IOException) {
+            }
+            catch (e: IOException) {
                 // Connectivity issues
                 errorMessage = "Connection issue. Please check your internet connection and try again."
             } catch (e: Exception) {
@@ -167,7 +196,7 @@ class AuthViewModel(
 
     // Performs logout by wiping stored credentials and notifying the navigation controller
     fun logout(onDone: () -> Unit) {
-        TokenStore.clear(context)
+        clearAuthStates()
         onDone()
     }
 
@@ -176,7 +205,30 @@ class AuthViewModel(
         loginSuccess = false
     }
 
+    // Dismisses the welcome greeting pop-up after a single confirmation frame flash
     fun resetWelcomeMessageShown(){
         showWelcomeMessage = false
+    }
+
+    // Inspects cache memory on initialization to perform instantaneous login if active session tokens exist
+    fun checkExistingSession() {
+        val accessToken = TokenStore.getAccess(context)
+        val refreshToken = TokenStore.getRefresh(context)
+
+        if (accessToken != null && refreshToken != null) {
+            loginSuccess = true
+        }
+    }
+
+    // Drops all active validation tracking components and clears local persistent shared preference storage
+    fun clearAuthStates() {
+        errorMessage = null
+        successMessage = null
+        loginSuccess = false
+        showWelcomeMessage = false
+        username = null
+        isLoading = false
+
+        TokenStore.clear(getApplication<Application>().applicationContext)
     }
 }

@@ -2,8 +2,10 @@ package gr.ihu.ict.carshow.data.local
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import androidx.room.TypeConverters
 
 
+// Defines the Room database table structure for storing vehicle details locally
 @Entity(tableName = "car_entries")
 data class CarEntity(
 
@@ -16,7 +18,11 @@ data class CarEntity(
     val year: Int,
     val price: Double,
     val priceNegotiable: Boolean,
+
+    // Uses custom TypeConverters to serialize/deserialize the List of image URLs into a single database string
+    @TypeConverters(Converters::class)
     val imageUrls: List<String>,
+
     val description: String,
     val engine: Int,
     val fuelType: String,
@@ -34,7 +40,8 @@ data class CarEntity(
     val isRightHandDrive: Boolean,
     val location: String,
     val sellerType: String,
-    val rating: Float, // Changed from Double to Float
+    val rating: Float, // Local rating given by the user
+    val averageRating: Double, // Global average rating from all users
     val videoUrl: String? = null
 
 )

@@ -1,5 +1,7 @@
 package gr.ihu.ict.carshow.data.model
 
+import com.google.gson.annotations.SerializedName
+
 
 // App domain model representing a vehicle review
 // This clean data structure is used directly by Compose UI to display reviews
@@ -13,5 +15,6 @@ data class VehicleReview(
     // The actual text message from the user (Review text)
     val comment: String,
     // The time and date showing when the review was created
+    @SerializedName("created_at")
     val createdAt: String
 )

@@ -10,20 +10,26 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface CarEntryDao {
 
-    // Retrieves all vehicles from the database sorted alphabetically by brand
-    // Returns a Flow to allow the UI to reactively update whenever the data changes
-    @Query("SELECT * FROM car_entries ORDER BY brand ASC")
-    fun getAllCars(): Flow<List<CarEntity>>
+    // Retrieves an observable stream of vehicle entries filtered and ordered dynamically based on user criteria
+    @Query("""
+        SELECT * FROM car_entries 
+        ORDER BY 
+            CASE WHEN :orderBy = 'brand' THEN brand END ASC,
+            CASE WHEN :orderBy = 'price' THEN price END ASC,
+            CASE WHEN :orderBy = '-price' THEN price END DESC,
+            CASE WHEN :orderBy = 'year' THEN year END ASC,
+            CASE WHEN :orderBy = '-year' THEN year END DESC,
+            CASE WHEN :orderBy = 'engine' THEN engine END ASC,
+            CASE WHEN :orderBy = '-engine' THEN engine END DESC,
+            id DESC
+    """)
+    fun getFilteredCarsStream(orderBy: String?): Flow<List<CarEntity>>
+
 
     // Fetches a single car entry by its unique ID
     // Marked as suspend to ensure it runs on a background thread
     @Query("SELECT * FROM car_entries WHERE id = :id")
     suspend fun getCarById(id: Int): CarEntity?
-
-    // Filters vehicles based on their category
-    // Returns a Flow for reactive UI updates for specific categories
-    @Query("SELECT * FROM car_entries WHERE category = :category")
-    fun getCarsByCategory(category: String): Flow<List<CarEntity>>
 
     // Inserts or updates a single car entry
     // If the ID already exists, it replaces the old data (OnConflictStrategy.REPLACE)
@@ -63,4 +69,9 @@ interface CarEntryDao {
     // Often used during a full refresh or when a vehicle is deleted
     @Query("DELETE FROM vehicle_reviews WHERE vehicleId = :vehicleId")
     suspend fun deleteReviewsForVehicle(vehicleId: Int)
+
+
+    // Deletes a single specific review by its unique ID from the local database
+    @Query("DELETE FROM vehicle_reviews WHERE id = :reviewId")
+    suspend fun deleteReviewById(reviewId: Int)
 }

@@ -11,13 +11,26 @@ data class CarListUiState(
     val isLoading: Boolean = false,
     // Holds network or database error messages to be displayed to the user
     val errorMessage: String? = null,
+    val successMessage: String? = null,
     // The current state of filters applied by the user, defaults to empty/no filters
     val filters: CarFilterState = CarFilterState()
 )
 
 // Holds the active filter and sorting parameters selected by the user in the UI
 data class CarFilterState(
+    val brand: String? = null,
+    val model: String? = null,
+    val location: String? = null,
+
     val category: String? = null,
+    val fuelType: String? = null,
+    val drivetrain: String? = null,
+    val transmission: String? = null,
+    val interiorColor: String? = null,
+    val exteriorColor: String? = null,
+    val sellerType: String? = null,
+
+
     val minPrice: Double? = null,
     val maxPrice: Double? = null,
     val minEngine: Int? = null,
@@ -28,6 +41,8 @@ data class CarFilterState(
     val maxHP: Int? = null,
     val minYear: Int? = null,
     val maxYear: Int? = null,
+    val minConsumption: Double? = null,
+    val maxConsumption: Double? = null,
     // Holds the Django ordering key (e.g., "price", "year", "-id")
-    val ordering: String? = null
+    val ordering: String? = "-id"
 )

@@ -1,10 +1,12 @@
 package gr.ihu.ict.carshow.ui.viewmodel
 
+import android.media.session.MediaSession
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import gr.ihu.ict.carshow.auth.TokenStore
 import gr.ihu.ict.carshow.data.model.CarEntry
 import gr.ihu.ict.carshow.data.model.ReviewRequest
 import gr.ihu.ict.carshow.data.model.VehicleReview
@@ -39,6 +41,7 @@ class CarDetailViewModel(
     var successMessage by mutableStateOf<String?>(null)
         private set
 
+    // State flag used to notify the UI when a vehicle is successfully deleted to trigger back navigation
     var isDeleteSuccess by mutableStateOf(false)
         private set
 
@@ -75,7 +78,7 @@ class CarDetailViewModel(
     // Reactive observation of the local database reviews
     // Collecting the Flow from Room so the UI updates automatically whenever
     // A new review is added or refreshed from the server
-    fun observerReviews(vehicleId: Int) {
+    fun observeReviews(vehicleId: Int) {
         viewModelScope.launch {
             repository.getReviewsStream(vehicleId).collect { listFromRoom ->
                 reviews = listFromRoom
@@ -107,15 +110,23 @@ class CarDetailViewModel(
     // Sends a new review to the server and local database
     // Don't need to manually append because observing the database Flow does it automatically
     // The new review list gets appended auto and the Room handles the update notification
-    fun addReview(vehicleId: Int, rating: Float, comment: String) {
+    fun addReview(vehicleId: Int, rating: Float, comment: String, onTokenExpired: () -> Unit) {
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
             successMessage = null
             try {
-                repository.postReview(vehicleId, ReviewRequest(rating, comment))
+                val request = ReviewRequest(
+                    vehicle = vehicleId,
+                    rating = rating,
+                    comment = comment
+                )
+
+                repository.postReview(request)
 
                 successMessage = "Review submitted successfully!"
+            } catch (e: TokenExpiredException) {
+                onTokenExpired()
             } catch (e: Exception) {
                 errorMessage = "Failed to submit review."
             } finally {
@@ -125,6 +136,7 @@ class CarDetailViewModel(
     }
 
 
+    // Deletes the vehicle entry from both server and cache, then updates the success flag
     fun deleteVehicle(carEntry: CarEntry, onTokenExpired: () -> Unit) {
         viewModelScope.launch {
             isLoading = true
@@ -137,6 +149,27 @@ class CarDetailViewModel(
                 onTokenExpired()
             } catch (e: Exception) {
                 errorMessage = "Failed to delete the vehicle. Please check your connection."
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    // Removes a specific review by ID using the repository and clears state messages
+    fun deleteReview(reviewId: Int, onTokenExpired: () -> Unit) {
+        viewModelScope.launch {
+            isLoading = true
+            errorMessage = null
+            successMessage = null
+
+            try {
+
+                repository.deleteReview(reviewId)
+                successMessage = "Review deleted successfully!"
+            } catch (e: TokenExpiredException) {
+                onTokenExpired()
+            } catch (e: Exception) {
+                errorMessage = "Failed to delete the review. Please try again."
             } finally {
                 isLoading = false
             }
